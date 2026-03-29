@@ -1,111 +1,117 @@
 {
-  "theme": "light",
-  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "theme": "Light",
+  "archetype": "Archetype 1 (Organic & Earthy) blended with Luxury E-commerce",
+  "brand_identity": {
+    "name": "Whisked Words",
+    "parent_company": "Jain Industries",
+    "vibe": "Aesthetic, classy, premium artisan bakery",
+    "emotions": "Warmth, indulgence, craftsmanship, elegance"
+  },
   "colors": {
-    "background": "#FFFFFF",
-    "surface": "#F5F5F5",
-    "surface_glass": "rgba(255, 255, 255, 0.7)",
-    "primary": "#0A0A0A",
-    "primary_foreground": "#FFFFFF",
-    "secondary": "#EAEAEA",
-    "secondary_foreground": "#111111",
-    "accent": "#002FA7",
-    "accent_foreground": "#FFFFFF",
-    "destructive": "#FF3B30",
-    "destructive_foreground": "#FFFFFF",
-    "muted": "#888888",
-    "border": "#E5E5E5",
-    "ring": "#002FA7"
+    "background": "bg-[#FAF8F5]",
+    "surface": "bg-white",
+    "surface_alt": "bg-[#F3EFEA]",
+    "primary": "bg-[#4A3B32]",
+    "primary_hover": "bg-[#332822]",
+    "secondary": "bg-[#D4A373]",
+    "accent": "bg-[#A3B18A]",
+    "text_main": "text-[#2C2420]",
+    "text_muted": "text-[#786A60]",
+    "border": "border-[#E8E0D5]",
+    "tiers": {
+      "bronze": "bg-[#A67C52] text-white",
+      "silver": "bg-[#9CA3AF] text-white",
+      "gold": "bg-[#D4AF37] text-white",
+      "platinum": "bg-[#78716C] text-white"
+    }
   },
   "typography": {
-    "headings_font": "Outfit",
-    "body_font": "Manrope",
-    "scales": {
-      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-black uppercase",
-      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-bold",
-      "h3": "text-xl sm:text-2xl tracking-tight font-semibold",
-      "h4": "text-lg sm:text-xl font-medium",
-      "body": "text-base leading-relaxed tracking-normal",
-      "small": "text-sm tracking-wide font-medium",
-      "overline": "text-xs tracking-[0.2em] uppercase font-bold text-muted"
-    }
+    "imports": "@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');",
+    "heading_font": "font-serif (Playfair Display)",
+    "body_font": "font-sans (Manrope)",
+    "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-none font-serif text-[#2C2420]",
+    "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-serif text-[#2C2420]",
+    "h3": "text-xl sm:text-2xl font-serif text-[#2C2420]",
+    "body": "text-base leading-relaxed text-[#786A60] font-sans",
+    "button": "text-sm uppercase tracking-widest font-semibold font-sans",
+    "overline": "text-xs uppercase tracking-[0.2em] text-[#D4A373] font-sans font-semibold"
   },
   "spacing_and_layout": {
-    "philosophy": "Generous Spacing Philosophy with Technical Grid Borders. Asymmetry and high tension in marketing, extreme density in dashboards.",
-    "container_padding": "p-8 md:p-12 lg:p-16",
-    "gap_large": "gap-12 md:gap-24",
-    "gap_medium": "gap-8",
-    "gap_small": "gap-4 md:gap-6",
-    "bento_grid": {
-      "marketing": "grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-8 md:gap-12 align-start",
-      "dashboard": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 align-start"
-    }
+    "section_padding": "py-20 md:py-32",
+    "container": "max-w-7xl mx-auto px-6 md:px-12",
+    "grid_bento": "grid grid-cols-1 md:grid-cols-12 gap-8",
+    "product_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12"
   },
-  "components": {
-    "buttons": {
-      "primary": "bg-primary text-primary-foreground hover:bg-[#333333] hover:text-white transition-all duration-300 rounded-none border border-primary px-8 py-4 font-bold tracking-wide",
-      "secondary": "bg-transparent text-primary hover:bg-secondary hover:text-primary transition-all duration-300 rounded-none border border-border px-8 py-4 font-bold tracking-wide",
-      "accent": "bg-accent text-accent-foreground hover:bg-[#002280] transition-all duration-300 rounded-none border border-accent px-8 py-4 font-bold tracking-wide",
-      "ghost": "bg-transparent text-primary hover:bg-surface transition-all duration-300 rounded-none px-4 py-2 font-medium"
+  "surface_styles": {
+    "header": "backdrop-blur-xl bg-white/80 border-b border-[#E8E0D5]/50 sticky top-0 z-50 transition-all duration-300",
+    "footer": "bg-[#2C2420] text-[#FAF8F5] py-24",
+    "cards": "bg-white rounded-none border border-[#E8E0D5] shadow-sm hover:shadow-md transition-shadow duration-300",
+    "images": "rounded-none overflow-hidden",
+    "buttons_primary": "bg-[#4A3B32] text-white rounded-none px-8 py-4 hover:bg-[#332822] transition-colors duration-300 flex items-center justify-center gap-2",
+    "buttons_secondary": "bg-transparent border border-[#4A3B32] text-[#4A3B32] rounded-none px-8 py-4 hover:bg-[#4A3B32] hover:text-white transition-colors duration-300 flex items-center justify-center gap-2",
+    "inputs": "rounded-none border-[#E8E0D5] focus:ring-1 focus:ring-[#4A3B32] bg-white text-[#2C2420]"
+  },
+  "motion": {
+    "hover_image": "group-hover:scale-105 transition-transform duration-700 ease-out",
+    "fade_in": "animate-in fade-in slide-in-from-bottom-4 duration-1000",
+    "marquee": "Use react-fast-marquee. Very slow, smooth drift. Background: #F3EFEA, Text: #4A3B32. Font: Playfair Display, text-sm, uppercase, tracking-[0.2em]."
+  },
+  "page_specific_instructions": {
+    "global_nav": "Desktop links visible. Align left: Shop, Custom Orders. Center: Logo (Playfair, large). Right: Rewards, Subscriptions, Cart.",
+    "product_catalog": "Use Cardless design for products to look editorial. Aspect ratio 4/5 for product images (`aspect-[4/5] object-cover`). Name in serif text-lg, price in sans text-sm. Subtle 'Add to Cart' button below price. Sections for Trending Now, Recently Viewed, Recommended For You using Horizontal scroll carousels or 4-column grids.",
+    "custom_cake_order": "Multi-step form layout. Left side: Fixed sticky image of the custom cake (use the custom_cake_showcase image). Right side: The form (Flavor, Size, Tiers, Message). Clean lines, generous padding.",
+    "cart_and_checkout": "Two-column bento layout. Left: Forms and cart items. Right: Sticky order summary. Very clean, minimal borders. Highlight the total. Minimal distractions to improve conversion.",
+    "order_success": "Hero section centered, massive serif 'Thank You'. Order details elegantly structured below in a grid. Receipt style.",
+    "my_orders_and_subscriptions": "Table layouts with generous row spacing. Minimal borders (border-b only). Action buttons (Pause, Resume, Cancel) should be outline buttons to keep it clean.",
+    "reviews": "Masonry layout or bento grid for reviews. Use star icons (lucide-react). Include customer images or initials. Clean white cards on #FAF8F5 background.",
+    "loyalty_rewards": "Show tier progress with an elegant thin progress bar. Feature tier benefits in a crisp 4-column grid with their respective tier colors as top borders or subtle backgrounds."
+  },
+  "media": [
+    {
+      "category": "hero",
+      "url": "https://static.prod-images.emergentagent.com/jobs/a640ac3b-0600-4eca-a0b3-c7b9e3903f25/images/f5be954a90ec6c1a7c1965e0befa793aee00503f3c9eecf44ecd8c0580a589a6.png",
+      "description": "Bakery interior at golden hour, use for the main landing page hero."
     },
-    "cards": {
-      "marketing": "bg-white border border-border p-8 hover:-translate-y-1 hover:shadow-xl transition-transform duration-300 rounded-none",
-      "dashboard": "bg-white border border-border p-6 rounded-none",
-      "glass": "bg-white/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 shadow-sm rounded-none"
+    {
+      "category": "custom_cake_showcase",
+      "url": "https://static.prod-images.emergentagent.com/jobs/a640ac3b-0600-4eca-a0b3-c7b9e3903f25/images/ff2d564e3a4ef380991ac5aa321abae22f134886559801737a79c2a54b474bb4.png",
+      "description": "Elegant tiered custom cake, use for the Custom Cake order page."
     },
-    "inputs": {
-      "default": "border border-border bg-transparent px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent rounded-none transition-all outline-none text-base w-full text-primary"
+    {
+      "category": "pastry_catalog_bg",
+      "url": "https://static.prod-images.emergentagent.com/jobs/a640ac3b-0600-4eca-a0b3-c7b9e3903f25/images/12bffb18451a5e0478fe39e930d05bc35c09b0e16b8b78bfd0c7f89ab1f18fa8.png",
+      "description": "Gourmet pastry counter background, use for hero on product catalog."
     },
-    "header": {
-      "style": "sticky top-0 z-50 bg-white/80 backdrop-blur-xl backdrop-saturate-150 border-b border-border/40"
+    {
+      "category": "product_gourmet_counter",
+      "url": "https://images.pexels.com/photos/34073612/pexels-photo-34073612.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Gourmet pastry counter, use for category images."
+    },
+    {
+      "category": "product_chocolate_cake",
+      "url": "https://images.pexels.com/photos/19543937/pexels-photo-19543937.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Rich chocolate cake product image."
+    },
+    {
+      "category": "testimonial_person",
+      "url": "https://images.pexels.com/photos/5426069/pexels-photo-5426069.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Smiling woman eating cake for reviews/testimonial section."
+    },
+    {
+      "category": "product_assorted_pastries",
+      "url": "https://images.unsplash.com/photo-1754294437651-2a79a3f1888b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxhcnRpc2FuJTIwYmFrZXJ5JTIwY2FrZXMlMjBwYXN0cmllc3xlbnwwfHx8fDE3NzQ4MTA0NDJ8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Pastries under cloches, good for category card or background."
     }
+  ],
+  "accessibility_and_testing": {
+    "testid_convention": "All interactive elements MUST have data-testid attributes (e.g., data-testid='add-to-cart-button', data-testid='checkout-form-submit').",
+    "contrast": "Ensure #2C2420 and #4A3B32 text on #FAF8F5 and #white meets WCAG AA standards. Use focus rings on all inputs.",
+    "aria_labels": "Include aria-labels on icon buttons and purely decorative images should have aria-hidden='true'."
   },
-  "surfaces_and_micro_themes": {
-    "dashboard_widgets": "Grid Borders (The Technical Look) - visible skeleton, border-collapse layout, zero soft shadows. 1px solid strokes.",
-    "marketing_hero": "Bento-style layout combining the 4 businesses. Negative space is highly valued. Max overlay opacity bg-black/40 if text is directly over images.",
-    "navigation": "Crystal Glass style for sticky headers. Hard bottom border."
-  },
-  "motion_and_interactions": {
-    "hover": "High contrast shifts. Text explicitly set on hover (e.g., hover:bg-primary hover:text-white).",
-    "transitions": "Use specific properties: transition: transform 0.2s ease, opacity 0.2s ease, background-color 0.2s ease.",
-    "bento_items": "Staggered entrance animations using framer-motion. Subtle scale-up or border-color shift on hover."
-  },
-  "icons_and_assets": {
-    "library": "lucide-react",
-    "style": "Sharp, clean, 1.5px stroke width. Unfilled.",
-    "installation": "yarn add lucide-react"
-  },
-  "media": {
-    "image_urls": {
-      "kids_wear": {
-        "url": "https://images.pexels.com/photos/5560013/pexels-photo-5560013.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "Full-body portrait of a stylish young girl in a casual outfit posing confidently in a studio.",
-        "category": "business_showcase"
-      },
-      "jewellery": {
-        "url": "https://images.pexels.com/photos/3641056/pexels-photo-3641056.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "Close-up of luxurious rose gold bracelet and lace, ideal for brides.",
-        "category": "business_showcase"
-      },
-      "saree": {
-        "url": "https://images.pexels.com/photos/36194190/pexels-photo-36194190.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "South Asian woman posing in a colorful saree outdoors.",
-        "category": "business_showcase"
-      },
-      "bakery": {
-        "url": "https://images.pexels.com/photos/192933/pexels-photo-192933.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "description": "Freshly baked croissants and pastries displayed in a cozy New York City bakery.",
-        "category": "business_showcase"
-      }
-    }
-  },
-  "instructions_to_main_agent": [
-    "Design Identity: You are building an authoritative, premium multi-business SaaS. The tone is objective, rigid, and functional-first (Archetype 4: Swiss & High-Contrast).",
-    "Marketing Pages: Use raw HTML/Tailwind for the public landing pages. Implement a 'Tetris' Bento grid showcasing the 4 businesses asymmetrically. Do NOT use standard Shadcn cards for marketing.",
-    "Dashboards & Portals: Use Shadcn components but override them heavily. Use `rounded-none` everywhere. Remove all soft shadows. Use strict 'Technical Look' grids (border-r border-b on grid items).",
-    "Typography: Use 'Outfit' for headings with tight letter spacing and 'Manrope' for body text. Enforce extreme contrast between headings (Large, Black weight) and body.",
-    "Colors: UI must be 95% monochrome (White, F5F5F5, 0A0A0A). Color is functional only. Use Accent (#002FA7) strictly for primary SaaS CTAs.",
-    "Dark Mode (If implemented): Do not use pure black. Use #121212 background and #1F1F1F surface. Desaturate the accent color by 20%.",
-    "Testing: Add data-testid attributes (kebab-case, role-based) to all interactive elements (buttons, inputs, menu items, tabs)."
-  ]
+  "external_libraries": [
+    "lucide-react",
+    "framer-motion",
+    "react-fast-marquee"
+  ],
+  "instructions_to_main_agent": "Ensure you build the frontend exactly following these design guidelines. Do not use generic Shadcn styling, customize Shadcn components with these border-radius, color, and typographic choices. Map the provided URLs to the requested images on the respective pages. Adhere to data-testid requirements for testability."
 }
