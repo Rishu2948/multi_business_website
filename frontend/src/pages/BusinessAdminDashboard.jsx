@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import Navbar from '../components/common/Navbar';
+import AddProductModal from '../components/AddProductModal';
 import apiClient from '../utils/api';
 import { Package, AlertTriangle, TrendingUp, Plus, Edit, Trash2 } from 'lucide-react';
 
@@ -12,6 +13,7 @@ const BusinessAdminDashboard = () => {
   const [inventory, setInventory] = useState([]);
   const [businesses, setBusinesses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAddProduct, setShowAddProduct] = useState(false);
 
   useEffect(() => {
     const fetchBusinesses = async () => {
@@ -167,6 +169,7 @@ const BusinessAdminDashboard = () => {
             <div className="p-6 border-b border-border flex items-center justify-between">
               <h2 className="text-xl font-bold text-primary">INVENTORY MANAGEMENT</h2>
               <button
+                onClick={() => setShowAddProduct(true)}
                 className="bg-accent text-white px-4 py-2 font-bold text-sm tracking-wide border border-accent hover:bg-[#002280] transition-all flex items-center gap-2"
                 data-testid="add-product-button"
               >
@@ -258,6 +261,29 @@ const BusinessAdminDashboard = () => {
           </div>
         </div>
       </main>
+
+      {/* Add Product Modal */}
+      <AddProductModal
+        isOpen={showAddProduct}
+        onClose={() => setShowAddProduct(false)}
+        businessId={selectedBusiness?.business_id}
+        onProductAdded={() => {
+          // Refresh data
+          const fetchData = async () => {
+            try {
+              const [statsRes, inventoryRes] = await Promise.all([
+                apiClient.get(`/analytics/dashboard?business_id=${selectedBusiness.business_id}`),
+                apiClient.get(`/inventory?business_id=${selectedBusiness.business_id}`)
+              ]);
+              setStats(statsRes.data.business_stats);
+              setInventory(inventoryRes.data.inventory);
+            } catch (error) {
+              console.error('Error refreshing data:', error);
+            }
+          };
+          fetchData();
+        }}
+      />
     </div>
   );
 };

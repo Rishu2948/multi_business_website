@@ -17,6 +17,10 @@ import CartPage from './pages/CartPage';
 import CheckoutPage from './pages/CheckoutPage';
 import OrderSuccessPage from './pages/OrderSuccessPage';
 import MyOrdersPage from './pages/MyOrdersPage';
+import CustomCakeOrderPage from './pages/CustomCakeOrderPage';
+import ReviewsPage from './pages/ReviewsPage';
+import LoyaltyPage from './pages/LoyaltyPage';
+import SubscriptionsPage from './pages/SubscriptionsPage';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import BusinessAdminDashboard from './pages/BusinessAdminDashboard';
 import StaffDashboard from './pages/StaffDashboard';
@@ -49,6 +53,12 @@ function AppRouter() {
       <Route path="/checkout" element={<CheckoutPage />} />
       <Route path="/order-success" element={<OrderSuccessPage />} />
       <Route path="/my-orders" element={<MyOrdersPage />} />
+      
+      {/* Phase 3: Reviews, Loyalty, Subscriptions */}
+      <Route path="/reviews/:productId" element={<ReviewsPage />} />
+      <Route path="/loyalty" element={<LoyaltyPage />} />
+      <Route path="/subscriptions" element={<SubscriptionsPage />} />
+      <Route path="/business/:businessId/custom-order" element={<CustomCakeOrderPage />} />
       
       {/* Protected Routes - Super Admin */}
       <Route

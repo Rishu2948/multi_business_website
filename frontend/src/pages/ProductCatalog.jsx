@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import Navbar from '../components/common/Navbar';
 import Footer from '../components/common/Footer';
 import { useCart } from '../context/CartContext';
 import apiClient from '../utils/api';
-import { Loader2, Package, ShoppingCart, Plus } from 'lucide-react';
+import { Loader2, Package, ShoppingCart, Star } from 'lucide-react';
 
 const ProductCatalog = () => {
   const { businessId } = useParams();
@@ -90,9 +90,20 @@ const ProductCatalog = () => {
       {/* Products Section */}
       <main className="flex-1 py-16" data-testid="products-section">
         <div className="max-w-7xl mx-auto px-8">
-          <div className="mb-12">
-            <h2 className="text-2xl font-bold text-primary mb-2">Product Catalog</h2>
-            <p className="text-sm text-muted">{products.length} products available</p>
+          <div className="mb-12 flex items-end justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-primary mb-2">Product Catalog</h2>
+              <p className="text-sm text-muted">{products.length} products available</p>
+            </div>
+            {businessId === 'whisked_words' && (
+              <Link
+                to={`/business/${businessId}/custom-order`}
+                className="bg-accent text-white hover:bg-[#002280] transition-all border border-accent px-6 py-3 font-bold text-sm tracking-wide"
+                data-testid="custom-cake-order-button"
+              >
+                CUSTOM CAKE ORDER
+              </Link>
+            )}
           </div>
 
           {products.length === 0 ? (
@@ -166,6 +177,16 @@ const ProductCatalog = () => {
                         </div>
                       </div>
                     )}
+
+                    {/* Reviews Link */}
+                    <Link
+                      to={`/reviews/${product.product_id}`}
+                      className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-[#002280] transition-colors"
+                      data-testid={`reviews-link-${product.product_id}`}
+                    >
+                      <Star size={12} />
+                      View Reviews
+                    </Link>
                   </div>
                 </div>
               ))}

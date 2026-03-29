@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
-import { LogOut, User, LayoutDashboard, ShoppingCart } from 'lucide-react';
+import { LogOut, User, LayoutDashboard, ShoppingCart, Package, Award, RefreshCw, Cake } from 'lucide-react';
 
 const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -34,7 +34,7 @@ const Navbar = () => {
           </Link>
 
           {/* Navigation */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
             <Link
               to="/businesses"
               className="text-sm font-medium text-primary hover:text-accent transition-colors"
@@ -42,6 +42,35 @@ const Navbar = () => {
             >
               BUSINESSES
             </Link>
+
+            {isAuthenticated && (
+              <>
+                <Link
+                  to="/my-orders"
+                  className="text-sm font-medium text-primary hover:text-accent transition-colors flex items-center gap-1"
+                  data-testid="nav-my-orders"
+                >
+                  <Package size={16} />
+                  ORDERS
+                </Link>
+                <Link
+                  to="/loyalty"
+                  className="text-sm font-medium text-primary hover:text-accent transition-colors flex items-center gap-1"
+                  data-testid="nav-loyalty"
+                >
+                  <Award size={16} />
+                  REWARDS
+                </Link>
+                <Link
+                  to="/subscriptions"
+                  className="text-sm font-medium text-primary hover:text-accent transition-colors flex items-center gap-1"
+                  data-testid="nav-subscriptions"
+                >
+                  <RefreshCw size={14} />
+                  SUBSCRIBE
+                </Link>
+              </>
+            )}
             
             {/* Cart Icon */}
             <Link
@@ -86,7 +115,6 @@ const Navbar = () => {
                     data-testid="nav-logout-button"
                   >
                     <LogOut size={18} />
-                    LOGOUT
                   </button>
                 </div>
               </>
