@@ -66,15 +66,14 @@ const Landing = () => {
       <section className="py-20 md:py-32 bg-white" data-testid="hero-section">
         <div className="max-w-7xl mx-auto px-8">
           <div className="max-w-4xl">
-            <p className="text-xs tracking-[0.2em] uppercase font-bold text-muted mb-6">UNIFIED MANAGEMENT PLATFORM</p>
+            <p className="text-xs tracking-[0.2em] uppercase font-bold text-muted mb-6">JAIN INDUSTRIES</p>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-black uppercase text-primary mb-8 leading-none">
-              ONE PLATFORM,<br />
+              ONE COMPANY,<br />
               FOUR AMAZING<br />
-              BUSINESSES
-            </h1>
+              BUSINESSES\n            </h1>
             <p className="text-base leading-relaxed text-muted max-w-2xl mb-12">
-              Streamline operations across multiple businesses with our comprehensive management platform.
-              From inventory tracking to analytics, everything you need in one place.
+              Jain Industries is a diversified business conglomerate managing four successful brands across fashion, jewellery, textiles, and food industries.
+              Each business operates independently with its own identity while maintaining our commitment to quality and excellence.
             </p>
             <div className="flex flex-wrap gap-4">
               <Link

@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import Businesses from './pages/Businesses';
 import ProductCatalog from './pages/ProductCatalog';
+import BusinessHome from './pages/BusinessHome';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import BusinessAdminDashboard from './pages/BusinessAdminDashboard';
 import StaffDashboard from './pages/StaffDashboard';
@@ -32,6 +33,11 @@ function AppRouter() {
       <Route path="/auth-callback" element={<AuthCallback />} />
       <Route path="/businesses" element={<Businesses />} />
       <Route path="/catalog/:businessId" element={<ProductCatalog />} />
+      
+      {/* Independent Business Sites */}
+      <Route path="/business/:businessId" element={<BusinessHome />} />
+      <Route path="/business/:businessId/catalog" element={<ProductCatalog />} />
+      <Route path="/business/:businessId/contact" element={<BusinessHome />} />
       
       {/* Protected Routes - Super Admin */}
       <Route

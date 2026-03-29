@@ -7,9 +7,9 @@ const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Brand */}
           <div>
-            <h3 className="text-lg font-black tracking-tight mb-4 uppercase">Multi-Business Platform</h3>
+            <h3 className="text-lg font-black tracking-tight mb-4 uppercase">Jain Industries</h3>
             <p className="text-sm text-white/70">
-              One platform managing four amazing businesses with ease and efficiency.
+              A diversified business conglomerate managing four successful brands across fashion, jewellery, textiles, and food industries.
             </p>
           </div>
 

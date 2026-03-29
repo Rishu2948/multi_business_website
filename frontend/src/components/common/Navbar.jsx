@@ -26,9 +26,9 @@ const Navbar = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3" data-testid="nav-logo">
             <div className="w-10 h-10 bg-primary flex items-center justify-center">
-              <span className="text-white font-black text-xl">MB</span>
+              <span className="text-white font-black text-xl">JI</span>
             </div>
-            <span className="text-xl font-black tracking-tight text-primary uppercase">Multi-Business</span>
+            <span className="text-xl font-black tracking-tight text-primary uppercase">Jain Industries</span>
           </Link>
 
           {/* Navigation */}
