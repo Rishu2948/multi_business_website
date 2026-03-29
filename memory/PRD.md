@@ -42,6 +42,15 @@ Requires React frontend + FastAPI backend + MongoDB. Needs Super Admin, Business
 - Order success page with payment status polling
 - My Orders page with order status tracking
 
+### Product Discovery
+- **Trending Now**: Auto-ranked by order count + reviews with rank badges
+- **Recently Viewed**: localStorage tracking + server-side DB for cross-device, shown on catalog
+- **Recommended For You**: Smart recommendation engine with 4 strategies:
+  - `category_match` — same category as viewed/ordered items
+  - `also_bought` — co-purchase analysis from other customers
+  - `discovery` — products user hasn't interacted with yet
+  - `top_rated` — fallback for unauthenticated users
+
 ### Phase 3 Features
 - **Custom Cake Orders**: Multi-step form (cake details → delivery → contact)
 - **Reviews**: Create review per product (awards 50 loyalty points), view reviews with star ratings
@@ -96,4 +105,5 @@ Requires React frontend + FastAPI backend + MongoDB. Needs Super Admin, Business
 ## Testing
 - Iteration 1: Backend 96.5% (28/29), Frontend 100% — order variant_id fix applied
 - Iteration 2: Trending feature — Backend 100% (7/7), Frontend 100%
-- Test reports: /app/test_reports/iteration_1.json, /app/test_reports/iteration_2.json
+- Iteration 3: Recently Viewed + Recommended — Backend 100% (11/11), Frontend 100%
+- Test reports: /app/test_reports/iteration_1.json, iteration_2.json, iteration_3.json
