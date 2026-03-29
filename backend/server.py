@@ -690,6 +690,30 @@ async def get_dashboard_stats(
 # Include the router in the main app
 app.include_router(api_router)
 
+# ============= E-COMMERCE ROUTES INTEGRATION =============
+# Import and register e-commerce routes
+import ecommerce_routes
+import payment_routes
+import order_routes
+import custom_order_routes
+import additional_routes
+
+# Set database for all e-commerce modules
+ecommerce_routes.set_db(db)
+payment_routes.set_db(db)
+order_routes.set_db(db)
+custom_order_routes.set_db(db)
+additional_routes.set_db(db)
+
+# Include routers
+app.include_router(ecommerce_routes.router)
+app.include_router(payment_routes.router)
+app.include_router(order_routes.router)
+app.include_router(custom_order_routes.router)
+app.include_router(additional_routes.reviews_router)
+app.include_router(additional_routes.loyalty_router)
+app.include_router(additional_routes.subscriptions_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
