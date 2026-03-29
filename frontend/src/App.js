@@ -1,51 +1,84 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { BusinessProvider } from './context/BusinessContext';
+import ProtectedRoute from './components/protected/ProtectedRoute';
+import { Toaster } from './components/ui/sonner';
+import './App.css';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+// Pages
+import Landing from './pages/Landing';
+import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
+import Businesses from './pages/Businesses';
+import ProductCatalog from './pages/ProductCatalog';
+import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import BusinessAdminDashboard from './pages/BusinessAdminDashboard';
+import StaffDashboard from './pages/StaffDashboard';
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function AppRouter() {
+  const location = useLocation();
+  
+  // Check URL fragment (not query params) for session_id
+  // CRITICAL: This must run synchronously during render before useEffect
+  if (location.hash?.includes('session_id=')) {
+    return <AuthCallback />;
+  }
+  
   return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
+    <Routes>
+      {/* Public Routes */}
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/auth-callback" element={<AuthCallback />} />
+      <Route path="/businesses" element={<Businesses />} />
+      <Route path="/catalog/:businessId" element={<ProductCatalog />} />
+      
+      {/* Protected Routes - Super Admin */}
+      <Route
+        path="/super-admin"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin']}>
+            <SuperAdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+      
+      {/* Protected Routes - Business Admin */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <BusinessAdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+      
+      {/* Protected Routes - Staff */}
+      <Route
+        path="/staff"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin', 'staff']}>
+            <StaffDashboard />
+          </ProtectedRoute>
+        }
+      />
+      
+      {/* Fallback */}
+      <Route path="*" element={<Landing />} />
+    </Routes>
   );
-};
+}
 
 function App() {
   return (
     <div className="App">
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <BusinessProvider>
+            <AppRouter />
+            <Toaster position="top-right" />
+          </BusinessProvider>
+        </AuthProvider>
       </BrowserRouter>
     </div>
   );
