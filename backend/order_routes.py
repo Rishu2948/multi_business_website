@@ -47,10 +47,20 @@ async def create_order(order_data: OrderCreate, request: Request):
     
     # Validate stock availability
     for item in order_data.items:
-        inventory = await db.inventory.find_one(
-            {"product_id": item.product_id, "variant_id": item.variant_id},
-            {"_id": 0}
-        )
+        query = {"product_id": item.product_id}
+        if item.variant_id:
+            query["variant_id"] = item.variant_id
+        else:
+            query["variant_id"] = None
+        
+        inventory = await db.inventory.find_one(query, {"_id": 0})
+        
+        # Fallback: try without variant_id filter if no match
+        if not inventory:
+            inventory = await db.inventory.find_one(
+                {"product_id": item.product_id},
+                {"_id": 0}
+            )
         
         if not inventory or inventory["quantity"]["available"] < item.quantity:
             raise HTTPException(
@@ -82,8 +92,15 @@ async def create_order(order_data: OrderCreate, request: Request):
     
     # Reserve inventory
     for item in order_data.items:
-        await db.inventory.update_one(
-            {"product_id": item.product_id, "variant_id": item.variant_id},
+        inv_query = {"product_id": item.product_id}
+        if item.variant_id:
+            inv_query["variant_id"] = item.variant_id
+        else:
+            inv_query["variant_id"] = None
+        
+        # Try exact match first, then fallback
+        result = await db.inventory.update_one(
+            inv_query,
             {
                 "$inc": {
                     "quantity.available": -item.quantity,
@@ -91,6 +108,16 @@ async def create_order(order_data: OrderCreate, request: Request):
                 }
             }
         )
+        if result.modified_count == 0:
+            await db.inventory.update_one(
+                {"product_id": item.product_id},
+                {
+                    "$inc": {
+                        "quantity.available": -item.quantity,
+                        "quantity.reserved": item.quantity
+                    }
+                }
+            )
     
     # Clear cart
     if user:
