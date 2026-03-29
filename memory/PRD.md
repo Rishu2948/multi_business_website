@@ -94,6 +94,6 @@ Requires React frontend + FastAPI backend + MongoDB. Needs Super Admin, Business
 - Refactor server.py into central router file
 
 ## Testing
-- Backend: 96.5% pass rate (28/29), order creation variant_id fix applied
-- Frontend: 100% critical flows working
-- Test report: /app/test_reports/iteration_1.json
+- Iteration 1: Backend 96.5% (28/29), Frontend 100% — order variant_id fix applied
+- Iteration 2: Trending feature — Backend 100% (7/7), Frontend 100%
+- Test reports: /app/test_reports/iteration_1.json, /app/test_reports/iteration_2.json
