@@ -265,6 +265,50 @@ async def list_products(
         }
     }
 
+@api_router.get("/products/trending/{business_id}")
+async def get_trending_products(business_id: str, limit: int = 6):
+    """Get trending/bestseller products ranked by order count + review rating"""
+    products = await db.products.find(
+        {"business_id": business_id, "status": "active"},
+        {"_id": 0}
+    ).to_list(200)
+
+    scored = []
+    for product in products:
+        pid = product["product_id"]
+
+        # Count how many times this product was ordered (sum quantities across all orders)
+        order_pipeline = [
+            {"$match": {"business_id": business_id}},
+            {"$unwind": "$items"},
+            {"$match": {"items.product_id": pid}},
+            {"$group": {"_id": None, "total_ordered": {"$sum": "$items.quantity"}}}
+        ]
+        order_agg = await db.orders.aggregate(order_pipeline).to_list(1)
+        total_ordered = order_agg[0]["total_ordered"] if order_agg else 0
+
+        # Get review stats
+        reviews = await db.reviews.find({"product_id": pid}, {"_id": 0, "rating": 1}).to_list(500)
+        review_count = len(reviews)
+        avg_rating = (sum(r["rating"] for r in reviews) / review_count) if review_count else 0
+
+        # Score: weighted combo — orders matter more, reviews add boost
+        score = (total_ordered * 10) + (avg_rating * 5) + (review_count * 2)
+
+        scored.append({
+            **product,
+            "total_ordered": total_ordered,
+            "review_count": review_count,
+            "avg_rating": round(avg_rating, 1),
+            "trending_score": round(score, 1)
+        })
+
+    # Sort by score descending, take top N
+    scored.sort(key=lambda x: x["trending_score"], reverse=True)
+    trending = scored[:limit]
+
+    return {"trending": trending, "total": len(trending)}
+
 @api_router.get("/products/{product_id}")
 async def get_product(product_id: str):
     """Get product details (public)"""

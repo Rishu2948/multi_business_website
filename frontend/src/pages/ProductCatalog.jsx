@@ -4,24 +4,43 @@ import Navbar from '../components/common/Navbar';
 import Footer from '../components/common/Footer';
 import { useCart } from '../context/CartContext';
 import apiClient from '../utils/api';
-import { Loader2, Package, ShoppingCart, Star } from 'lucide-react';
+import { Loader2, Package, ShoppingCart, Star, TrendingUp, Flame } from 'lucide-react';
+
+const StarDisplay = ({ rating, count }) => (
+  <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((s) => (
+        <Star
+          key={s}
+          size={12}
+          className={s <= Math.round(rating) ? 'fill-yellow-400 text-yellow-400' : 'text-border'}
+        />
+      ))}
+    </div>
+    <span className="text-xs font-semibold text-primary">{rating}</span>
+    {count > 0 && <span className="text-xs text-muted">({count})</span>}
+  </div>
+);
 
 const ProductCatalog = () => {
   const { businessId } = useParams();
   const { addToCart, loading: cartLoading } = useCart();
   const [business, setBusiness] = useState(null);
   const [products, setProducts] = useState([]);
+  const [trending, setTrending] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [businessRes, productsRes] = await Promise.all([
+        const [businessRes, productsRes, trendingRes] = await Promise.all([
           apiClient.get(`/businesses/${businessId}`),
-          apiClient.get(`/products?business_id=${businessId}`)
+          apiClient.get(`/products?business_id=${businessId}`),
+          apiClient.get(`/products/trending/${businessId}?limit=4`)
         ]);
         setBusiness(businessRes.data);
         setProducts(productsRes.data.products);
+        setTrending(trendingRes.data.trending);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -87,12 +106,92 @@ const ProductCatalog = () => {
         </div>
       </section>
 
+      {/* Trending / Bestsellers Section */}
+      {trending.length > 0 && (
+        <section className="py-12 border-b border-border bg-[#FAFAFA]" data-testid="trending-section">
+          <div className="max-w-7xl mx-auto px-8">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-10 h-10 bg-primary flex items-center justify-center">
+                <Flame size={20} className="text-white" strokeWidth={1.5} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight text-primary uppercase">TRENDING NOW</h2>
+                <p className="text-xs tracking-wide text-muted">Bestsellers ranked by popularity and ratings</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {trending.map((product, index) => (
+                <div
+                  key={product.product_id}
+                  className="bg-white border border-border group hover:-translate-y-1 hover:shadow-lg transition-all duration-300 relative"
+                  data-testid={`trending-card-${product.product_id}`}
+                >
+                  {/* Rank Badge */}
+                  <div className="absolute top-3 left-3 z-10 w-8 h-8 bg-primary text-white flex items-center justify-center font-black text-sm"
+                       data-testid={`trending-rank-${index + 1}`}>
+                    {index + 1}
+                  </div>
+
+                  {/* Product Image */}
+                  <div className="aspect-[4/3] overflow-hidden">
+                    {product.images && product.images.length > 0 ? (
+                      <img
+                        src={product.images[0].url}
+                        alt={product.product_name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-surface flex items-center justify-center">
+                        <Package size={36} className="text-muted" strokeWidth={1.5} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="p-4">
+                    <h3 className="text-sm font-bold text-primary mb-1.5 line-clamp-1">{product.product_name}</h3>
+
+                    {/* Rating + Stats */}
+                    <div className="flex items-center justify-between mb-3">
+                      <StarDisplay rating={product.avg_rating} count={product.review_count} />
+                      {product.total_ordered > 0 && (
+                        <div className="flex items-center gap-1 text-xs text-muted">
+                          <TrendingUp size={12} />
+                          <span>{product.total_ordered} sold</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Price + CTA */}
+                    <div className="flex items-center justify-between">
+                      <p className="text-lg font-black text-primary">
+                        {product.currency === 'INR' ? '₹' : '$'}{product.base_price.toLocaleString()}
+                      </p>
+                      <button
+                        onClick={() => addToCart(product.product_id, null, 1)}
+                        disabled={cartLoading}
+                        className="bg-primary text-white hover:bg-[#333333] transition-all px-3 py-2 text-xs font-bold tracking-wide flex items-center gap-1 disabled:opacity-50"
+                        data-testid={`trending-add-to-cart-${product.product_id}`}
+                      >
+                        <ShoppingCart size={14} />
+                        ADD
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Products Section */}
       <main className="flex-1 py-16" data-testid="products-section">
         <div className="max-w-7xl mx-auto px-8">
           <div className="mb-12 flex items-end justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-primary mb-2">Product Catalog</h2>
+              <h2 className="text-2xl font-bold text-primary mb-2">All Products</h2>
               <p className="text-sm text-muted">{products.length} products available</p>
             </div>
             {businessId === 'whisked_words' && (
