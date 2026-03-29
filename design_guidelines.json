@@ -1,0 +1,111 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#F5F5F5",
+    "surface_glass": "rgba(255, 255, 255, 0.7)",
+    "primary": "#0A0A0A",
+    "primary_foreground": "#FFFFFF",
+    "secondary": "#EAEAEA",
+    "secondary_foreground": "#111111",
+    "accent": "#002FA7",
+    "accent_foreground": "#FFFFFF",
+    "destructive": "#FF3B30",
+    "destructive_foreground": "#FFFFFF",
+    "muted": "#888888",
+    "border": "#E5E5E5",
+    "ring": "#002FA7"
+  },
+  "typography": {
+    "headings_font": "Outfit",
+    "body_font": "Manrope",
+    "scales": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-black uppercase",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-bold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-semibold",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed tracking-normal",
+      "small": "text-sm tracking-wide font-medium",
+      "overline": "text-xs tracking-[0.2em] uppercase font-bold text-muted"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing Philosophy with Technical Grid Borders. Asymmetry and high tension in marketing, extreme density in dashboards.",
+    "container_padding": "p-8 md:p-12 lg:p-16",
+    "gap_large": "gap-12 md:gap-24",
+    "gap_medium": "gap-8",
+    "gap_small": "gap-4 md:gap-6",
+    "bento_grid": {
+      "marketing": "grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-8 md:gap-12 align-start",
+      "dashboard": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 align-start"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-[#333333] hover:text-white transition-all duration-300 rounded-none border border-primary px-8 py-4 font-bold tracking-wide",
+      "secondary": "bg-transparent text-primary hover:bg-secondary hover:text-primary transition-all duration-300 rounded-none border border-border px-8 py-4 font-bold tracking-wide",
+      "accent": "bg-accent text-accent-foreground hover:bg-[#002280] transition-all duration-300 rounded-none border border-accent px-8 py-4 font-bold tracking-wide",
+      "ghost": "bg-transparent text-primary hover:bg-surface transition-all duration-300 rounded-none px-4 py-2 font-medium"
+    },
+    "cards": {
+      "marketing": "bg-white border border-border p-8 hover:-translate-y-1 hover:shadow-xl transition-transform duration-300 rounded-none",
+      "dashboard": "bg-white border border-border p-6 rounded-none",
+      "glass": "bg-white/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 shadow-sm rounded-none"
+    },
+    "inputs": {
+      "default": "border border-border bg-transparent px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent rounded-none transition-all outline-none text-base w-full text-primary"
+    },
+    "header": {
+      "style": "sticky top-0 z-50 bg-white/80 backdrop-blur-xl backdrop-saturate-150 border-b border-border/40"
+    }
+  },
+  "surfaces_and_micro_themes": {
+    "dashboard_widgets": "Grid Borders (The Technical Look) - visible skeleton, border-collapse layout, zero soft shadows. 1px solid strokes.",
+    "marketing_hero": "Bento-style layout combining the 4 businesses. Negative space is highly valued. Max overlay opacity bg-black/40 if text is directly over images.",
+    "navigation": "Crystal Glass style for sticky headers. Hard bottom border."
+  },
+  "motion_and_interactions": {
+    "hover": "High contrast shifts. Text explicitly set on hover (e.g., hover:bg-primary hover:text-white).",
+    "transitions": "Use specific properties: transition: transform 0.2s ease, opacity 0.2s ease, background-color 0.2s ease.",
+    "bento_items": "Staggered entrance animations using framer-motion. Subtle scale-up or border-color shift on hover."
+  },
+  "icons_and_assets": {
+    "library": "lucide-react",
+    "style": "Sharp, clean, 1.5px stroke width. Unfilled.",
+    "installation": "yarn add lucide-react"
+  },
+  "media": {
+    "image_urls": {
+      "kids_wear": {
+        "url": "https://images.pexels.com/photos/5560013/pexels-photo-5560013.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Full-body portrait of a stylish young girl in a casual outfit posing confidently in a studio.",
+        "category": "business_showcase"
+      },
+      "jewellery": {
+        "url": "https://images.pexels.com/photos/3641056/pexels-photo-3641056.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Close-up of luxurious rose gold bracelet and lace, ideal for brides.",
+        "category": "business_showcase"
+      },
+      "saree": {
+        "url": "https://images.pexels.com/photos/36194190/pexels-photo-36194190.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "South Asian woman posing in a colorful saree outdoors.",
+        "category": "business_showcase"
+      },
+      "bakery": {
+        "url": "https://images.pexels.com/photos/192933/pexels-photo-192933.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Freshly baked croissants and pastries displayed in a cozy New York City bakery.",
+        "category": "business_showcase"
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "Design Identity: You are building an authoritative, premium multi-business SaaS. The tone is objective, rigid, and functional-first (Archetype 4: Swiss & High-Contrast).",
+    "Marketing Pages: Use raw HTML/Tailwind for the public landing pages. Implement a 'Tetris' Bento grid showcasing the 4 businesses asymmetrically. Do NOT use standard Shadcn cards for marketing.",
+    "Dashboards & Portals: Use Shadcn components but override them heavily. Use `rounded-none` everywhere. Remove all soft shadows. Use strict 'Technical Look' grids (border-r border-b on grid items).",
+    "Typography: Use 'Outfit' for headings with tight letter spacing and 'Manrope' for body text. Enforce extreme contrast between headings (Large, Black weight) and body.",
+    "Colors: UI must be 95% monochrome (White, F5F5F5, 0A0A0A). Color is functional only. Use Accent (#002FA7) strictly for primary SaaS CTAs.",
+    "Dark Mode (If implemented): Do not use pure black. Use #121212 background and #1F1F1F surface. Desaturate the accent color by 20%.",
+    "Testing: Add data-testid attributes (kebab-case, role-based) to all interactive elements (buttons, inputs, menu items, tabs)."
+  ]
+}
