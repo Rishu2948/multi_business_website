@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Navbar from '../components/common/Navbar';
 import Footer from '../components/common/Footer';
+import { useCart } from '../context/CartContext';
 import apiClient from '../utils/api';
-import { Loader2, Package } from 'lucide-react';
+import { Loader2, Package, ShoppingCart, Plus } from 'lucide-react';
 
 const ProductCatalog = () => {
   const { businessId } = useParams();
+  const { addToCart, loading: cartLoading } = useCart();
   const [business, setBusiness] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -130,18 +132,22 @@ const ProductCatalog = () => {
                       {product.description}
                     </p>
 
-                    {/* Price */}
-                    <div className="flex items-center justify-between pt-4 border-t border-border">
-                      <div>
+                    {/* Price and Add to Cart */}
+                    <div className="pt-4 border-t border-border">
+                      <div className="flex items-center justify-between mb-4">
                         <p className="text-2xl font-bold text-primary">
                           {product.currency === 'INR' ? '₹' : '$'}{product.base_price.toLocaleString()}
                         </p>
                       </div>
+                      
                       <button
-                        className="text-sm font-bold text-accent hover:text-[#002280] transition-colors"
-                        data-testid={`view-product-${product.product_id}`}
+                        onClick={() => addToCart(product.product_id, null, 1)}
+                        disabled={cartLoading}
+                        className="w-full bg-accent text-white hover:bg-[#002280] transition-all border border-accent px-4 py-3 font-bold tracking-wide flex items-center justify-center gap-2 disabled:opacity-50"
+                        data-testid={`add-to-cart-${product.product_id}`}
                       >
-                        VIEW DETAILS
+                        <ShoppingCart size={18} />
+                        {cartLoading ? 'ADDING...' : 'ADD TO CART'}
                       </button>
                     </div>
 

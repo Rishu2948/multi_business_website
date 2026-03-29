@@ -1,9 +1,11 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { LogOut, User, LayoutDashboard } from 'lucide-react';
+import { useCart } from '../../context/CartContext';
+import { LogOut, User, LayoutDashboard, ShoppingCart } from 'lucide-react';
 
 const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const { cartCount } = useCart();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -39,6 +41,20 @@ const Navbar = () => {
               data-testid="nav-businesses"
             >
               BUSINESSES
+            </Link>
+            
+            {/* Cart Icon */}
+            <Link
+              to="/cart"
+              className="relative text-primary hover:text-accent transition-colors"
+              data-testid="nav-cart"
+            >
+              <ShoppingCart size={22} />
+              {cartCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-accent text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
             </Link>
             
             {isAuthenticated ? (

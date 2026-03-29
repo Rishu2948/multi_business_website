@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BusinessProvider } from './context/BusinessContext';
+import { CartProvider } from './context/CartContext';
 import ProtectedRoute from './components/protected/ProtectedRoute';
 import { Toaster } from './components/ui/sonner';
 import './App.css';
@@ -12,6 +13,10 @@ import AuthCallback from './pages/AuthCallback';
 import Businesses from './pages/Businesses';
 import ProductCatalog from './pages/ProductCatalog';
 import BusinessHome from './pages/BusinessHome';
+import CartPage from './pages/CartPage';
+import CheckoutPage from './pages/CheckoutPage';
+import OrderSuccessPage from './pages/OrderSuccessPage';
+import MyOrdersPage from './pages/MyOrdersPage';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import BusinessAdminDashboard from './pages/BusinessAdminDashboard';
 import StaffDashboard from './pages/StaffDashboard';
@@ -38,6 +43,12 @@ function AppRouter() {
       <Route path="/business/:businessId" element={<BusinessHome />} />
       <Route path="/business/:businessId/catalog" element={<ProductCatalog />} />
       <Route path="/business/:businessId/contact" element={<BusinessHome />} />
+      
+      {/* E-Commerce Routes */}
+      <Route path="/cart" element={<CartPage />} />
+      <Route path="/checkout" element={<CheckoutPage />} />
+      <Route path="/order-success" element={<OrderSuccessPage />} />
+      <Route path="/my-orders" element={<MyOrdersPage />} />
       
       {/* Protected Routes - Super Admin */}
       <Route
@@ -81,8 +92,10 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <BusinessProvider>
-            <AppRouter />
-            <Toaster position="top-right" />
+            <CartProvider>
+              <AppRouter />
+              <Toaster position="top-right" />
+            </CartProvider>
           </BusinessProvider>
         </AuthProvider>
       </BrowserRouter>
