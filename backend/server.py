@@ -309,6 +309,151 @@ async def get_trending_products(business_id: str, limit: int = 6):
 
     return {"trending": trending, "total": len(trending)}
 
+@api_router.post("/products/track-view")
+async def track_product_view(request: Request):
+    """Track a product view for the current user (stores in DB for recommendations)"""
+    body = await request.json()
+    product_id = body.get("product_id")
+    business_id = body.get("business_id")
+    if not product_id or not business_id:
+        raise HTTPException(status_code=400, detail="product_id and business_id required")
+
+    # Get optional user
+    user = None
+    token = request.cookies.get("session_token") or request.headers.get("authorization", "").replace("Bearer ", "")
+    if token:
+        session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+        if session:
+            user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
+
+    user_id = user["user_id"] if user else None
+    if not user_id:
+        return {"message": "View tracked locally only"}
+
+    # Upsert the view record — one entry per user+product, update timestamp + increment count
+    await db.product_views.update_one(
+        {"user_id": user_id, "product_id": product_id},
+        {
+            "$set": {
+                "business_id": business_id,
+                "last_viewed": datetime.now(timezone.utc).isoformat()
+            },
+            "$inc": {"view_count": 1},
+            "$setOnInsert": {
+                "user_id": user_id,
+                "product_id": product_id,
+                "first_viewed": datetime.now(timezone.utc).isoformat()
+            }
+        },
+        upsert=True
+    )
+    return {"message": "View tracked"}
+
+@api_router.get("/products/recommended/{business_id}")
+async def get_recommended_products(request: Request, business_id: str, limit: int = 4):
+    """Get personalized product recommendations based on view/order history"""
+    # Get optional user
+    user = None
+    token = request.cookies.get("session_token") or request.headers.get("authorization", "").replace("Bearer ", "")
+    if token:
+        session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+        if session:
+            user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
+
+    all_products = await db.products.find(
+        {"business_id": business_id, "status": "active"},
+        {"_id": 0}
+    ).to_list(200)
+
+    if not all_products:
+        return {"recommended": [], "total": 0, "strategy": "none"}
+
+    user_id = user["user_id"] if user else None
+    recommended = []
+    strategy = "top_rated"  # default fallback
+
+    if user_id:
+        # Get products the user has viewed
+        viewed = await db.product_views.find(
+            {"user_id": user_id, "business_id": business_id},
+            {"_id": 0}
+        ).sort("last_viewed", -1).to_list(20)
+        viewed_ids = {v["product_id"] for v in viewed}
+
+        # Get products the user has ordered
+        user_orders = await db.orders.find(
+            {"user_id": user_id},
+            {"_id": 0, "items": 1}
+        ).to_list(50)
+        ordered_ids = set()
+        for order in user_orders:
+            for item in order.get("items", []):
+                ordered_ids.add(item["product_id"])
+
+        # Get categories of viewed/ordered products
+        interacted_ids = viewed_ids | ordered_ids
+        interacted_categories = set()
+        for p in all_products:
+            if p["product_id"] in interacted_ids and p.get("category_id"):
+                interacted_categories.add(p["category_id"])
+
+        # Strategy 1: Products in same categories user has interacted with, but hasn't bought
+        if interacted_categories:
+            strategy = "category_match"
+            candidates = [
+                p for p in all_products
+                if p.get("category_id") in interacted_categories
+                and p["product_id"] not in ordered_ids
+            ]
+            if candidates:
+                recommended = candidates
+
+        # Strategy 2: Frequently bought together — find what OTHER users who bought the same items also bought
+        if not recommended and ordered_ids:
+            strategy = "also_bought"
+            co_purchase_pipeline = [
+                {"$match": {"items.product_id": {"$in": list(ordered_ids)}}},
+                {"$match": {"user_id": {"$ne": user_id}}},
+                {"$unwind": "$items"},
+                {"$match": {"items.product_id": {"$nin": list(ordered_ids)}}},
+                {"$group": {"_id": "$items.product_id", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": limit}
+            ]
+            co_purchases = await db.orders.aggregate(co_purchase_pipeline).to_list(limit)
+            co_ids = {cp["_id"] for cp in co_purchases}
+            candidates = [p for p in all_products if p["product_id"] in co_ids]
+            if candidates:
+                recommended = candidates
+
+        # Strategy 3: Products the user hasn't interacted with yet (discovery)
+        if not recommended and interacted_ids:
+            strategy = "discovery"
+            recommended = [p for p in all_products if p["product_id"] not in interacted_ids]
+
+    # Fallback: top-rated products
+    if not recommended:
+        strategy = "top_rated"
+        recommended = all_products
+
+    # Enrich with review data and sort by rating
+    enriched = []
+    for product in recommended:
+        pid = product["product_id"]
+        reviews = await db.reviews.find({"product_id": pid}, {"_id": 0, "rating": 1}).to_list(500)
+        review_count = len(reviews)
+        avg_rating = round(sum(r["rating"] for r in reviews) / review_count, 1) if review_count else 0
+        enriched.append({
+            **product,
+            "review_count": review_count,
+            "avg_rating": avg_rating
+        })
+
+    enriched.sort(key=lambda x: (x["avg_rating"], x["review_count"]), reverse=True)
+    result = enriched[:limit]
+
+    return {"recommended": result, "total": len(result), "strategy": strategy}
+
 @api_router.get("/products/{product_id}")
 async def get_product(product_id: str):
     """Get product details (public)"""

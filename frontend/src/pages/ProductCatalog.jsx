@@ -3,8 +3,9 @@ import { useParams, Link } from 'react-router-dom';
 import Navbar from '../components/common/Navbar';
 import Footer from '../components/common/Footer';
 import { useCart } from '../context/CartContext';
+import { useRecentlyViewed } from '../hooks/useRecentlyViewed';
 import apiClient from '../utils/api';
-import { Loader2, Package, ShoppingCart, Star, TrendingUp, Flame } from 'lucide-react';
+import { Loader2, Package, ShoppingCart, Star, TrendingUp, Flame, Clock, Sparkles } from 'lucide-react';
 
 const StarDisplay = ({ rating, count }) => (
   <div className="flex items-center gap-1.5">
@@ -22,25 +23,90 @@ const StarDisplay = ({ rating, count }) => (
   </div>
 );
 
+const CompactProductCard = ({ product, onAddToCart, cartLoading, rankBadge, testIdPrefix }) => (
+  <div
+    className="bg-white border border-border group hover:-translate-y-1 hover:shadow-lg transition-all duration-300 relative flex-shrink-0"
+    data-testid={`${testIdPrefix}-card-${product.product_id}`}
+  >
+    {rankBadge && (
+      <div className="absolute top-3 left-3 z-10 w-8 h-8 bg-primary text-white flex items-center justify-center font-black text-sm">
+        {rankBadge}
+      </div>
+    )}
+
+    <div className="aspect-[4/3] overflow-hidden">
+      {product.images && product.images.length > 0 ? (
+        <img
+          src={product.images[0].url}
+          alt={product.product_name}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+        />
+      ) : (
+        <div className="w-full h-full bg-surface flex items-center justify-center">
+          <Package size={36} className="text-muted" strokeWidth={1.5} />
+        </div>
+      )}
+    </div>
+
+    <div className="p-4">
+      <h3 className="text-sm font-bold text-primary mb-1.5 line-clamp-1">{product.product_name}</h3>
+
+      <div className="flex items-center justify-between mb-3">
+        {product.avg_rating !== undefined ? (
+          <StarDisplay rating={product.avg_rating} count={product.review_count} />
+        ) : <div />}
+        {product.total_ordered > 0 && (
+          <div className="flex items-center gap-1 text-xs text-muted">
+            <TrendingUp size={12} />
+            <span>{product.total_ordered} sold</span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-lg font-black text-primary">
+          {product.currency === 'INR' ? '₹' : '$'}{product.base_price.toLocaleString()}
+        </p>
+        <button
+          onClick={() => onAddToCart(product.product_id, null, 1)}
+          disabled={cartLoading}
+          className="bg-primary text-white hover:bg-[#333333] transition-all px-3 py-2 text-xs font-bold tracking-wide flex items-center gap-1 disabled:opacity-50"
+          data-testid={`${testIdPrefix}-add-to-cart-${product.product_id}`}
+        >
+          <ShoppingCart size={14} />
+          ADD
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 const ProductCatalog = () => {
   const { businessId } = useParams();
   const { addToCart, loading: cartLoading } = useCart();
+  const { viewedIds, trackView } = useRecentlyViewed();
   const [business, setBusiness] = useState(null);
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
+  const [recommended, setRecommended] = useState([]);
+  const [recStrategy, setRecStrategy] = useState('');
+  const [recentProducts, setRecentProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [businessRes, productsRes, trendingRes] = await Promise.all([
+        const [businessRes, productsRes, trendingRes, recRes] = await Promise.all([
           apiClient.get(`/businesses/${businessId}`),
           apiClient.get(`/products?business_id=${businessId}`),
-          apiClient.get(`/products/trending/${businessId}?limit=4`)
+          apiClient.get(`/products/trending/${businessId}?limit=4`),
+          apiClient.get(`/products/recommended/${businessId}?limit=4`)
         ]);
         setBusiness(businessRes.data);
         setProducts(productsRes.data.products);
         setTrending(trendingRes.data.trending);
+        setRecommended(recRes.data.recommended);
+        setRecStrategy(recRes.data.strategy);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -50,6 +116,36 @@ const ProductCatalog = () => {
 
     fetchData();
   }, [businessId]);
+
+  // Resolve recently viewed products from localStorage IDs
+  useEffect(() => {
+    if (products.length > 0 && viewedIds.length > 0) {
+      const productMap = {};
+      products.forEach(p => { productMap[p.product_id] = p; });
+      const resolved = viewedIds
+        .map(id => productMap[id])
+        .filter(Boolean)
+        .slice(0, 4);
+      setRecentProducts(resolved);
+    }
+  }, [products, viewedIds]);
+
+  // Track view when clicking "View Reviews" or product interaction
+  const handleProductClick = (productId) => {
+    trackView(productId);
+    // Also track server-side
+    apiClient.post('/products/track-view', {
+      product_id: productId,
+      business_id: businessId
+    }).catch(() => {});
+  };
+
+  const strategyLabels = {
+    category_match: 'Based on your interests',
+    also_bought: 'Customers also ordered',
+    discovery: 'You might like these',
+    top_rated: 'Our highest rated'
+  };
 
   if (loading) {
     return (
@@ -122,71 +218,79 @@ const ProductCatalog = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {trending.map((product, index) => (
-                <div
+                <CompactProductCard
                   key={product.product_id}
-                  className="bg-white border border-border group hover:-translate-y-1 hover:shadow-lg transition-all duration-300 relative"
-                  data-testid={`trending-card-${product.product_id}`}
-                >
-                  {/* Rank Badge */}
-                  <div className="absolute top-3 left-3 z-10 w-8 h-8 bg-primary text-white flex items-center justify-center font-black text-sm"
-                       data-testid={`trending-rank-${index + 1}`}>
-                    {index + 1}
-                  </div>
-
-                  {/* Product Image */}
-                  <div className="aspect-[4/3] overflow-hidden">
-                    {product.images && product.images.length > 0 ? (
-                      <img
-                        src={product.images[0].url}
-                        alt={product.product_name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-surface flex items-center justify-center">
-                        <Package size={36} className="text-muted" strokeWidth={1.5} />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="p-4">
-                    <h3 className="text-sm font-bold text-primary mb-1.5 line-clamp-1">{product.product_name}</h3>
-
-                    {/* Rating + Stats */}
-                    <div className="flex items-center justify-between mb-3">
-                      <StarDisplay rating={product.avg_rating} count={product.review_count} />
-                      {product.total_ordered > 0 && (
-                        <div className="flex items-center gap-1 text-xs text-muted">
-                          <TrendingUp size={12} />
-                          <span>{product.total_ordered} sold</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Price + CTA */}
-                    <div className="flex items-center justify-between">
-                      <p className="text-lg font-black text-primary">
-                        {product.currency === 'INR' ? '₹' : '$'}{product.base_price.toLocaleString()}
-                      </p>
-                      <button
-                        onClick={() => addToCart(product.product_id, null, 1)}
-                        disabled={cartLoading}
-                        className="bg-primary text-white hover:bg-[#333333] transition-all px-3 py-2 text-xs font-bold tracking-wide flex items-center gap-1 disabled:opacity-50"
-                        data-testid={`trending-add-to-cart-${product.product_id}`}
-                      >
-                        <ShoppingCart size={14} />
-                        ADD
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  product={product}
+                  onAddToCart={addToCart}
+                  cartLoading={cartLoading}
+                  rankBadge={index + 1}
+                  testIdPrefix="trending"
+                />
               ))}
             </div>
           </div>
         </section>
       )}
 
-      {/* Products Section */}
+      {/* Recently Viewed Section */}
+      {recentProducts.length > 0 && (
+        <section className="py-12 border-b border-border" data-testid="recently-viewed-section">
+          <div className="max-w-7xl mx-auto px-8">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-10 h-10 bg-[#666] flex items-center justify-center">
+                <Clock size={20} className="text-white" strokeWidth={1.5} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight text-primary uppercase">RECENTLY VIEWED</h2>
+                <p className="text-xs tracking-wide text-muted">Pick up where you left off</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {recentProducts.map((product) => (
+                <CompactProductCard
+                  key={product.product_id}
+                  product={product}
+                  onAddToCart={addToCart}
+                  cartLoading={cartLoading}
+                  testIdPrefix="recent"
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Recommended For You Section */}
+      {recommended.length > 0 && (
+        <section className="py-12 border-b border-border bg-[#FAFAFA]" data-testid="recommended-section">
+          <div className="max-w-7xl mx-auto px-8">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-10 h-10 bg-accent flex items-center justify-center">
+                <Sparkles size={20} className="text-white" strokeWidth={1.5} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight text-primary uppercase">RECOMMENDED FOR YOU</h2>
+                <p className="text-xs tracking-wide text-muted">{strategyLabels[recStrategy] || 'Handpicked for you'}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {recommended.map((product) => (
+                <CompactProductCard
+                  key={product.product_id}
+                  product={product}
+                  onAddToCart={addToCart}
+                  cartLoading={cartLoading}
+                  testIdPrefix="recommended"
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* All Products Section */}
       <main className="flex-1 py-16" data-testid="products-section">
         <div className="max-w-7xl mx-auto px-8">
           <div className="mb-12 flex items-end justify-between">
@@ -249,7 +353,7 @@ const ProductCatalog = () => {
                           {product.currency === 'INR' ? '₹' : '$'}{product.base_price.toLocaleString()}
                         </p>
                       </div>
-                      
+
                       <button
                         onClick={() => addToCart(product.product_id, null, 1)}
                         disabled={cartLoading}
@@ -280,6 +384,7 @@ const ProductCatalog = () => {
                     {/* Reviews Link */}
                     <Link
                       to={`/reviews/${product.product_id}`}
+                      onClick={() => handleProductClick(product.product_id)}
                       className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-[#002280] transition-colors"
                       data-testid={`reviews-link-${product.product_id}`}
                     >
