@@ -1,82 +1,89 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import Navbar from '../components/common/Navbar';
-import Footer from '../components/common/Footer';
+import { motion } from 'framer-motion';
+import Marquee from 'react-fast-marquee';
+import BakeryNavbar from '../components/common/BakeryNavbar';
+import BakeryFooter from '../components/common/BakeryFooter';
 import { useCart } from '../context/CartContext';
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed';
 import apiClient from '../utils/api';
-import { Loader2, Package, ShoppingCart, Star, TrendingUp, Flame, Clock, Sparkles } from 'lucide-react';
+import { Loader2, Package, ShoppingCart, Star, TrendingUp, Clock, Sparkles } from 'lucide-react';
 
 const StarDisplay = ({ rating, count }) => (
   <div className="flex items-center gap-1.5">
     <div className="flex items-center gap-0.5">
       {[1, 2, 3, 4, 5].map((s) => (
-        <Star
-          key={s}
-          size={12}
-          className={s <= Math.round(rating) ? 'fill-yellow-400 text-yellow-400' : 'text-border'}
-        />
+        <Star key={s} size={11} className={s <= Math.round(rating) ? 'fill-[#D4A373] text-[#D4A373]' : 'text-[#E8E0D5]'} />
       ))}
     </div>
-    <span className="text-xs font-semibold text-primary">{rating}</span>
-    {count > 0 && <span className="text-xs text-muted">({count})</span>}
+    <span className="text-xs font-medium text-[#2C2420]">{rating}</span>
+    {count > 0 && <span className="text-xs text-[#786A60]">({count})</span>}
   </div>
 );
 
-const CompactProductCard = ({ product, onAddToCart, cartLoading, rankBadge, testIdPrefix }) => (
-  <div
-    className="bg-white border border-border group hover:-translate-y-1 hover:shadow-lg transition-all duration-300 relative flex-shrink-0"
+const fadeUp = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (i = 0) => ({ opacity: 1, y: 0, transition: { delay: i * 0.08, duration: 0.6, ease: [0.22, 1, 0.36, 1] } })
+};
+
+const CompactCard = ({ product, onAddToCart, cartLoading, rankBadge, testIdPrefix }) => (
+  <motion.div
+    variants={fadeUp}
+    initial="hidden"
+    whileInView="visible"
+    viewport={{ once: true }}
+    className="group"
     data-testid={`${testIdPrefix}-card-${product.product_id}`}
   >
-    {rankBadge && (
-      <div className="absolute top-3 left-3 z-10 w-8 h-8 bg-primary text-white flex items-center justify-center font-black text-sm">
-        {rankBadge}
-      </div>
-    )}
-
-    <div className="aspect-[4/3] overflow-hidden">
-      {product.images && product.images.length > 0 ? (
-        <img
-          src={product.images[0].url}
-          alt={product.product_name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-        />
+    <div className="relative aspect-[4/5] overflow-hidden mb-4">
+      {rankBadge && (
+        <div className="absolute top-3 left-3 z-10 w-8 h-8 bg-[#2C2420] text-[#FAF8F5] flex items-center justify-center font-serif text-sm font-bold" data-testid={`trending-rank-${rankBadge}`}>
+          {rankBadge}
+        </div>
+      )}
+      {product.images?.[0]?.url ? (
+        <img src={product.images[0].url} alt={product.product_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" />
       ) : (
-        <div className="w-full h-full bg-surface flex items-center justify-center">
-          <Package size={36} className="text-muted" strokeWidth={1.5} />
+        <div className="w-full h-full bg-[#F3EFEA] flex items-center justify-center">
+          <Package size={32} className="text-[#786A60]" strokeWidth={1.5} />
         </div>
       )}
     </div>
 
-    <div className="p-4">
-      <h3 className="text-sm font-bold text-primary mb-1.5 line-clamp-1">{product.product_name}</h3>
+    <h3 className="font-serif text-lg text-[#2C2420] mb-1">{product.product_name}</h3>
 
-      <div className="flex items-center justify-between mb-3">
-        {product.avg_rating !== undefined ? (
-          <StarDisplay rating={product.avg_rating} count={product.review_count} />
-        ) : <div />}
-        {product.total_ordered > 0 && (
-          <div className="flex items-center gap-1 text-xs text-muted">
-            <TrendingUp size={12} />
-            <span>{product.total_ordered} sold</span>
-          </div>
-        )}
-      </div>
+    <div className="flex items-center justify-between mb-2">
+      {product.avg_rating !== undefined && product.avg_rating > 0 ? (
+        <StarDisplay rating={product.avg_rating} count={product.review_count} />
+      ) : <div />}
+      {product.total_ordered > 0 && (
+        <span className="text-[11px] text-[#786A60] flex items-center gap-1"><TrendingUp size={11} />{product.total_ordered} sold</span>
+      )}
+    </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-lg font-black text-primary">
-          {product.currency === 'INR' ? '₹' : '$'}{product.base_price.toLocaleString()}
-        </p>
-        <button
-          onClick={() => onAddToCart(product.product_id, null, 1)}
-          disabled={cartLoading}
-          className="bg-primary text-white hover:bg-[#333333] transition-all px-3 py-2 text-xs font-bold tracking-wide flex items-center gap-1 disabled:opacity-50"
-          data-testid={`${testIdPrefix}-add-to-cart-${product.product_id}`}
-        >
-          <ShoppingCart size={14} />
-          ADD
-        </button>
-      </div>
+    <div className="flex items-center justify-between">
+      <p className="text-sm font-semibold text-[#2C2420]">₹{product.base_price.toLocaleString()}</p>
+      <button
+        onClick={() => onAddToCart(product.product_id, null, 1)}
+        disabled={cartLoading}
+        className="bg-transparent border border-[#4A3B32] text-[#4A3B32] px-4 py-2 text-[11px] tracking-[0.15em] uppercase font-semibold hover:bg-[#4A3B32] hover:text-white transition-colors duration-300 disabled:opacity-50 flex items-center gap-1.5"
+        data-testid={`${testIdPrefix}-add-to-cart-${product.product_id}`}
+      >
+        <ShoppingCart size={13} />
+        Add
+      </button>
+    </div>
+  </motion.div>
+);
+
+const SectionHeader = ({ icon: Icon, title, subtitle, iconBg = 'bg-[#4A3B32]' }) => (
+  <div className="flex items-center gap-4 mb-10">
+    <div className={`w-10 h-10 ${iconBg} flex items-center justify-center`}>
+      <Icon size={18} className="text-white" strokeWidth={1.5} />
+    </div>
+    <div>
+      <h2 className="font-serif text-2xl md:text-3xl text-[#2C2420]">{title}</h2>
+      <p className="text-xs tracking-[0.15em] uppercase text-[#D4A373] font-semibold mt-0.5">{subtitle}</p>
     </div>
   </div>
 );
@@ -113,31 +120,20 @@ const ProductCatalog = () => {
         setLoading(false);
       }
     };
-
     fetchData();
   }, [businessId]);
 
-  // Resolve recently viewed products from localStorage IDs
   useEffect(() => {
     if (products.length > 0 && viewedIds.length > 0) {
       const productMap = {};
       products.forEach(p => { productMap[p.product_id] = p; });
-      const resolved = viewedIds
-        .map(id => productMap[id])
-        .filter(Boolean)
-        .slice(0, 4);
-      setRecentProducts(resolved);
+      setRecentProducts(viewedIds.map(id => productMap[id]).filter(Boolean).slice(0, 4));
     }
   }, [products, viewedIds]);
 
-  // Track view when clicking "View Reviews" or product interaction
   const handleProductClick = (productId) => {
     trackView(productId);
-    // Also track server-side
-    apiClient.post('/products/track-view', {
-      product_id: productId,
-      business_id: businessId
-    }).catch(() => {});
+    apiClient.post('/products/track-view', { product_id: productId, business_id: businessId }).catch(() => {});
   };
 
   const strategyLabels = {
@@ -149,10 +145,10 @@ const ProductCatalog = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col">
-        <Navbar />
+      <div className="min-h-screen flex flex-col bg-[#FAF8F5]">
+        <BakeryNavbar />
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#4A3B32]" />
         </div>
       </div>
     );
@@ -160,246 +156,180 @@ const ProductCatalog = () => {
 
   if (!business) {
     return (
-      <div className="min-h-screen flex flex-col">
-        <Navbar />
+      <div className="min-h-screen flex flex-col bg-[#FAF8F5]">
+        <BakeryNavbar />
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-muted">Business not found</p>
+          <p className="text-[#786A60] font-sans">Business not found</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
-      <Navbar />
+    <div className="min-h-screen flex flex-col bg-[#FAF8F5]">
+      <BakeryNavbar />
 
-      {/* Business Header */}
-      <section className="py-12 bg-surface border-b border-border" data-testid="catalog-header">
-        <div className="max-w-7xl mx-auto px-8">
-          <div className="flex items-start gap-8">
-            <div className="w-24 h-24 bg-white border border-border overflow-hidden flex-shrink-0">
-              <img
-                src={business.logo_url}
-                alt={business.business_name}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs tracking-[0.2em] uppercase font-bold text-muted mb-2">
-                {business.business_type.replace('_', ' ')}
-              </p>
-              <h1 className="text-4xl font-black tracking-tight text-primary uppercase mb-3">
-                {business.business_name}
-              </h1>
-              <p className="text-base text-muted mb-4">{business.description}</p>
-              <div className="flex items-center gap-6 text-sm text-muted">
-                <span>{business.contact.email}</span>
-                <span>{business.contact.phone}</span>
-                <span>{business.contact.address.city}, {business.contact.address.state}</span>
-              </div>
-            </div>
-          </div>
+      {/* Hero */}
+      <section className="relative h-[50vh] min-h-[400px] overflow-hidden" data-testid="catalog-header">
+        <img
+          src="https://static.prod-images.emergentagent.com/jobs/a640ac3b-0600-4eca-a0b3-c7b9e3903f25/images/12bffb18451a5e0478fe39e930d05bc35c09b0e16b8b78bfd0c7f89ab1f18fa8.png"
+          alt="Whisked Words Bakery"
+          className="absolute inset-0 w-full h-full object-cover"
+          aria-hidden="true"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#2C2420]/80 via-[#2C2420]/30 to-transparent" />
+        <div className="relative z-10 h-full flex flex-col justify-end max-w-7xl mx-auto px-6 md:px-12 pb-16">
+          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}>
+            <p className="text-xs tracking-[0.3em] uppercase text-[#D4A373] font-semibold mb-3">Artisan Bakery</p>
+            <h1 className="font-serif text-5xl md:text-6xl lg:text-7xl text-[#FAF8F5] leading-none mb-4 italic">
+              {business.business_name}
+            </h1>
+            <p className="text-base text-[#FAF8F5]/70 font-sans max-w-md">{business.description}</p>
+          </motion.div>
         </div>
       </section>
 
-      {/* Trending / Bestsellers Section */}
+      {/* Marquee */}
+      <div className="bg-[#F3EFEA] py-3 border-y border-[#E8E0D5]">
+        <Marquee speed={30} gradient={false}>
+          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Fresh pastries daily</span>
+          <span className="text-[#D4A373] mx-4">&bull;</span>
+          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Custom cakes for every occasion</span>
+          <span className="text-[#D4A373] mx-4">&bull;</span>
+          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Handcrafted with love</span>
+          <span className="text-[#D4A373] mx-4">&bull;</span>
+          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Subscribe for weekly deliveries</span>
+          <span className="text-[#D4A373] mx-4">&bull;</span>
+        </Marquee>
+      </div>
+
+      {/* Trending Now */}
       {trending.length > 0 && (
-        <section className="py-12 border-b border-border bg-[#FAFAFA]" data-testid="trending-section">
-          <div className="max-w-7xl mx-auto px-8">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 bg-primary flex items-center justify-center">
-                <Flame size={20} className="text-white" strokeWidth={1.5} />
-              </div>
-              <div>
-                <h2 className="text-2xl font-black tracking-tight text-primary uppercase">TRENDING NOW</h2>
-                <p className="text-xs tracking-wide text-muted">Bestsellers ranked by popularity and ratings</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <section className="py-20 md:py-28" data-testid="trending-section">
+          <div className="max-w-7xl mx-auto px-6 md:px-12">
+            <SectionHeader icon={TrendingUp} title="Trending Now" subtitle="Bestsellers ranked by popularity" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
               {trending.map((product, index) => (
-                <CompactProductCard
-                  key={product.product_id}
-                  product={product}
-                  onAddToCart={addToCart}
-                  cartLoading={cartLoading}
-                  rankBadge={index + 1}
-                  testIdPrefix="trending"
-                />
+                <CompactCard key={product.product_id} product={product} onAddToCart={addToCart} cartLoading={cartLoading} rankBadge={index + 1} testIdPrefix="trending" />
               ))}
             </div>
           </div>
         </section>
       )}
 
-      {/* Recently Viewed Section */}
+      {/* Recently Viewed */}
       {recentProducts.length > 0 && (
-        <section className="py-12 border-b border-border" data-testid="recently-viewed-section">
-          <div className="max-w-7xl mx-auto px-8">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 bg-[#666] flex items-center justify-center">
-                <Clock size={20} className="text-white" strokeWidth={1.5} />
-              </div>
-              <div>
-                <h2 className="text-2xl font-black tracking-tight text-primary uppercase">RECENTLY VIEWED</h2>
-                <p className="text-xs tracking-wide text-muted">Pick up where you left off</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <section className="py-20 md:py-28 bg-white border-y border-[#E8E0D5]" data-testid="recently-viewed-section">
+          <div className="max-w-7xl mx-auto px-6 md:px-12">
+            <SectionHeader icon={Clock} title="Recently Viewed" subtitle="Pick up where you left off" iconBg="bg-[#786A60]" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
               {recentProducts.map((product) => (
-                <CompactProductCard
-                  key={product.product_id}
-                  product={product}
-                  onAddToCart={addToCart}
-                  cartLoading={cartLoading}
-                  testIdPrefix="recent"
-                />
+                <CompactCard key={product.product_id} product={product} onAddToCart={addToCart} cartLoading={cartLoading} testIdPrefix="recent" />
               ))}
             </div>
           </div>
         </section>
       )}
 
-      {/* Recommended For You Section */}
+      {/* Recommended For You */}
       {recommended.length > 0 && (
-        <section className="py-12 border-b border-border bg-[#FAFAFA]" data-testid="recommended-section">
-          <div className="max-w-7xl mx-auto px-8">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-10 h-10 bg-accent flex items-center justify-center">
-                <Sparkles size={20} className="text-white" strokeWidth={1.5} />
-              </div>
-              <div>
-                <h2 className="text-2xl font-black tracking-tight text-primary uppercase">RECOMMENDED FOR YOU</h2>
-                <p className="text-xs tracking-wide text-muted">{strategyLabels[recStrategy] || 'Handpicked for you'}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <section className="py-20 md:py-28" data-testid="recommended-section">
+          <div className="max-w-7xl mx-auto px-6 md:px-12">
+            <SectionHeader icon={Sparkles} title="Recommended For You" subtitle={strategyLabels[recStrategy] || 'Handpicked for you'} iconBg="bg-[#D4A373]" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
               {recommended.map((product) => (
-                <CompactProductCard
-                  key={product.product_id}
-                  product={product}
-                  onAddToCart={addToCart}
-                  cartLoading={cartLoading}
-                  testIdPrefix="recommended"
-                />
+                <CompactCard key={product.product_id} product={product} onAddToCart={addToCart} cartLoading={cartLoading} testIdPrefix="recommended" />
               ))}
             </div>
           </div>
         </section>
       )}
 
-      {/* All Products Section */}
-      <main className="flex-1 py-16" data-testid="products-section">
-        <div className="max-w-7xl mx-auto px-8">
-          <div className="mb-12 flex items-end justify-between">
+      {/* All Products */}
+      <main className="py-20 md:py-28 bg-white border-t border-[#E8E0D5]" data-testid="products-section">
+        <div className="max-w-7xl mx-auto px-6 md:px-12">
+          <div className="flex items-end justify-between mb-14">
             <div>
-              <h2 className="text-2xl font-bold text-primary mb-2">All Products</h2>
-              <p className="text-sm text-muted">{products.length} products available</p>
+              <h2 className="font-serif text-3xl md:text-4xl text-[#2C2420] mb-2">All Products</h2>
+              <p className="text-sm text-[#786A60]">{products.length} items in our collection</p>
             </div>
             {businessId === 'whisked_words' && (
               <Link
                 to={`/business/${businessId}/custom-order`}
-                className="bg-accent text-white hover:bg-[#002280] transition-all border border-accent px-6 py-3 font-bold text-sm tracking-wide"
+                className="bg-[#4A3B32] text-white px-8 py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors duration-300 flex items-center gap-2"
                 data-testid="custom-cake-order-button"
               >
-                CUSTOM CAKE ORDER
+                Custom Cake Order
               </Link>
             )}
           </div>
 
           {products.length === 0 ? (
-            <div className="text-center py-20">
-              <Package size={48} className="mx-auto text-muted mb-4" strokeWidth={1.5} />
-              <p className="text-muted">No products available yet.</p>
+            <div className="text-center py-32">
+              <Package size={48} className="mx-auto text-[#786A60] mb-4" strokeWidth={1} />
+              <p className="text-[#786A60] font-serif text-xl">No products available yet.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {products.map((product) => (
-                <div
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10 lg:gap-16">
+              {products.map((product, i) => (
+                <motion.div
                   key={product.product_id}
-                  className="bg-white border border-border group hover:-translate-y-1 hover:shadow-lg transition-all duration-300"
+                  variants={fadeUp}
+                  custom={i}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  className="group"
                   data-testid={`product-card-${product.product_id}`}
                 >
-                  {/* Product Image */}
-                  <div className="aspect-square overflow-hidden">
-                    {product.images && product.images.length > 0 ? (
-                      <img
-                        src={product.images[0].url}
-                        alt={product.product_name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
+                  {/* Product Image - Editorial */}
+                  <div className="relative aspect-[4/5] overflow-hidden mb-5">
+                    {product.images?.[0]?.url ? (
+                      <img src={product.images[0].url} alt={product.product_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" />
                     ) : (
-                      <div className="w-full h-full bg-surface flex items-center justify-center">
-                        <Package size={48} className="text-muted" strokeWidth={1.5} />
+                      <div className="w-full h-full bg-[#F3EFEA] flex items-center justify-center">
+                        <Package size={48} className="text-[#786A60]" strokeWidth={1} />
                       </div>
                     )}
                   </div>
 
                   {/* Product Details */}
-                  <div className="p-6">
-                    <h3 className="text-lg font-semibold text-primary mb-2 line-clamp-2">
-                      {product.product_name}
-                    </h3>
-                    <p className="text-sm text-muted mb-4 line-clamp-2">
-                      {product.description}
+                  <h3 className="font-serif text-xl text-[#2C2420] mb-2">{product.product_name}</h3>
+                  <p className="text-sm text-[#786A60] leading-relaxed mb-4 line-clamp-2">{product.description}</p>
+
+                  <div className="flex items-center justify-between pt-4 border-t border-[#E8E0D5]">
+                    <p className="text-lg font-semibold text-[#2C2420]">
+                      ₹{product.base_price.toLocaleString()}
                     </p>
-
-                    {/* Price and Add to Cart */}
-                    <div className="pt-4 border-t border-border">
-                      <div className="flex items-center justify-between mb-4">
-                        <p className="text-2xl font-bold text-primary">
-                          {product.currency === 'INR' ? '₹' : '$'}{product.base_price.toLocaleString()}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => addToCart(product.product_id, null, 1)}
-                        disabled={cartLoading}
-                        className="w-full bg-accent text-white hover:bg-[#002280] transition-all border border-accent px-4 py-3 font-bold tracking-wide flex items-center justify-center gap-2 disabled:opacity-50"
-                        data-testid={`add-to-cart-${product.product_id}`}
-                      >
-                        <ShoppingCart size={18} />
-                        {cartLoading ? 'ADDING...' : 'ADD TO CART'}
-                      </button>
-                    </div>
-
-                    {/* Attributes Preview */}
-                    {product.attributes && Object.keys(product.attributes).length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-border">
-                        <div className="flex flex-wrap gap-2">
-                          {Object.entries(product.attributes).slice(0, 3).map(([key, value]) => (
-                            <span
-                              key={key}
-                              className="text-xs px-2 py-1 bg-surface text-muted font-medium"
-                            >
-                              {Array.isArray(value) ? value[0] : value}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Reviews Link */}
-                    <Link
-                      to={`/reviews/${product.product_id}`}
-                      onClick={() => handleProductClick(product.product_id)}
-                      className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-[#002280] transition-colors"
-                      data-testid={`reviews-link-${product.product_id}`}
+                    <button
+                      onClick={() => addToCart(product.product_id, null, 1)}
+                      disabled={cartLoading}
+                      className="bg-[#4A3B32] text-white px-6 py-3 text-[11px] tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors duration-300 flex items-center gap-2 disabled:opacity-50"
+                      data-testid={`add-to-cart-${product.product_id}`}
                     >
-                      <Star size={12} />
-                      View Reviews
-                    </Link>
+                      <ShoppingCart size={14} />
+                      Add to Cart
+                    </button>
                   </div>
-                </div>
+
+                  {/* Reviews Link */}
+                  <Link
+                    to={`/reviews/${product.product_id}`}
+                    onClick={() => handleProductClick(product.product_id)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[#D4A373] hover:text-[#4A3B32] transition-colors"
+                    data-testid={`reviews-link-${product.product_id}`}
+                  >
+                    <Star size={12} />
+                    View Reviews
+                  </Link>
+                </motion.div>
               ))}
             </div>
           )}
         </div>
       </main>
 
-      <Footer />
+      <BakeryFooter />
     </div>
   );
 };

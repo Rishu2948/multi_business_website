@@ -1,385 +1,160 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import BakeryNavbar from '../components/common/BakeryNavbar';
+import BakeryFooter from '../components/common/BakeryFooter';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../utils/api';
 import { toast } from 'sonner';
-import { CreditCard, Wallet, Truck } from 'lucide-react';
+import { CreditCard, Truck, Wallet } from 'lucide-react';
 
 const CheckoutPage = () => {
   const navigate = useNavigate();
-  const { cart } = useCart();
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('stripe');
+  const { cart, clearCart } = useCart();
+  const { isAuthenticated } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('cod');
+  const [delivery, setDelivery] = useState({ name: '', phone: '', email: '', address: '', city: '', state: '', pincode: '' });
 
-  const [deliveryInfo, setDeliveryInfo] = useState({
-    name: user?.name || '',
-    phone: '',
-    email: user?.email || '',
-    address: '',
-    city: '',
-    state: '',
-    pincode: '',
-    delivery_date: '',
-    delivery_time: '',
-    special_instructions: ''
-  });
+  const items = cart?.items || [];
+  const subtotal = cart?.total_amount || 0;
+  const tax = Math.round(subtotal * 0.05 * 100) / 100;
+  const deliveryCharge = subtotal >= 500 ? 0 : 50;
+  const total = subtotal + tax + deliveryCharge;
 
-  const [subtotal, setSubtotal] = useState(0);
-  const [tax, setTax] = useState(0);
-  const [deliveryCharge] = useState(50);
-  const [total, setTotal] = useState(0);
-
-  useEffect(() => {
-    if (!cart || !cart.items || cart.items.length === 0) {
-      navigate('/cart');
-      return;
-    }
-
-    const sub = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const taxAmount = sub * 0.05;
-    setSubtotal(sub);
-    setTax(taxAmount);
-    setTotal(sub + taxAmount + deliveryCharge);
-  }, [cart, deliveryCharge, navigate]);
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setDeliveryInfo(prev => ({ ...prev, [name]: value }));
-  };
+  const inputClass = "w-full border border-[#E8E0D5] px-4 py-3 focus:ring-1 focus:ring-[#4A3B32] focus:border-[#4A3B32] transition-all outline-none bg-white text-[#2C2420]";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    if (!isAuthenticated) { toast.error('Please login to place an order'); navigate('/login'); return; }
+    if (items.length === 0) { toast.error('Cart is empty'); return; }
+    if (!delivery.name || !delivery.phone || !delivery.address || !delivery.city || !delivery.state || !delivery.pincode) { toast.error('Please fill delivery details'); return; }
 
+    setSubmitting(true);
     try {
-      // Validate form
-      if (!deliveryInfo.name || !deliveryInfo.phone || !deliveryInfo.email || 
-          !deliveryInfo.address || !deliveryInfo.city || !deliveryInfo.state || !deliveryInfo.pincode) {
-        toast.error('Please fill all required fields');
-        setLoading(false);
-        return;
-      }
-
-      // Create order
-      const orderData = {
-        items: cart.items.map(item => ({
-          product_id: item.product_id,
-          variant_id: item.variant_id,
-          product_name: item.product_name,
-          quantity: item.quantity,
-          price: item.price,
-          subtotal: item.price * item.quantity,
-          image_url: item.image_url
-        })),
-        delivery_info: deliveryInfo,
-        payment_method: paymentMethod,
-        subtotal: subtotal,
-        tax: tax,
-        delivery_charge: deliveryCharge,
-        total: total
+      const orderPayload = {
+        items: items.map(item => ({ product_id: item.product_id, variant_id: null, product_name: item.product_name, quantity: item.quantity, price: item.price, subtotal: item.price * item.quantity })),
+        delivery_info: delivery, payment_method: paymentMethod, subtotal, tax, delivery_charge: deliveryCharge, total
       };
 
-      const orderResponse = await apiClient.post('/orders/create', orderData);
-      const orderId = orderResponse.data.order_id;
-
-      if (paymentMethod === 'cod') {
-        // For COD, order is created, navigate to success page
-        toast.success('Order placed successfully!');
-        navigate(`/order-success?order_id=${orderId}&payment_method=cod`);
-      } else {
-        // For online payment, create checkout session
-        const originUrl = window.location.origin;
-        const paymentResponse = await apiClient.post('/payments/create-checkout-session', {
-          order_id: orderId,
-          payment_method: paymentMethod,
-          origin_url: originUrl
-        });
-
-        // Redirect to payment gateway
-        if (paymentResponse.data.url) {
-          window.location.href = paymentResponse.data.url;
-        } else {
-          throw new Error('Payment URL not received');
-        }
+      if (paymentMethod === 'stripe') {
+        const paymentRes = await apiClient.post('/payments/stripe/create-session', { items: orderPayload.items, delivery_info: delivery, subtotal, tax, delivery_charge: deliveryCharge, total });
+        if (paymentRes.data.checkout_url) { window.location.href = paymentRes.data.checkout_url; return; }
       }
-    } catch (error) {
-      console.error('Checkout error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to process order');
-      setLoading(false);
-    }
+
+      const orderRes = await apiClient.post('/orders/create', orderPayload);
+      await clearCart();
+      toast.success('Order placed successfully!');
+      navigate(`/order-success?orderId=${orderRes.data.order_id}&method=${paymentMethod}`);
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to place order'); }
+    finally { setSubmitting(false); }
   };
 
+  if (items.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#FAF8F5]"><BakeryNavbar />
+        <div className="flex-1 flex items-center justify-center flex-col gap-4 py-24">
+          <p className="font-serif text-2xl text-[#2C2420]">Your cart is empty</p>
+          <button onClick={() => navigate('/business/whisked_words/catalog')} className="bg-[#4A3B32] text-white px-8 py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors">Browse Products</button>
+        </div>
+      <BakeryFooter /></div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-surface py-12" data-testid="checkout-page">
-      <div className="max-w-7xl mx-auto px-8">
-        <h1 className="text-4xl font-black text-primary uppercase mb-8">CHECKOUT</h1>
+    <div className="min-h-screen flex flex-col bg-[#FAF8F5]" data-testid="checkout-page">
+      <BakeryNavbar />
 
-        <form onSubmit={handleSubmit}>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Delivery Information */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* Contact Information */}
-              <div className="bg-white border border-border p-6">
-                <h2 className="text-xl font-bold text-primary mb-6">CONTACT INFORMATION</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-primary mb-2">Full Name *</label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={deliveryInfo.name}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                      data-testid="input-name"
-                    />
+      <main className="flex-1 py-16 md:py-24">
+        <div className="max-w-6xl mx-auto px-6 md:px-12">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <p className="text-xs tracking-[0.2em] uppercase text-[#D4A373] font-semibold mb-2">Final Step</p>
+            <h1 className="font-serif text-4xl md:text-5xl text-[#2C2420] mb-12">Checkout</h1>
+          </motion.div>
+
+          <form onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+              {/* Left: Forms */}
+              <div className="lg:col-span-7 space-y-10">
+                {/* Delivery */}
+                <div className="bg-white border border-[#E8E0D5] p-8" data-testid="delivery-info-section">
+                  <h2 className="font-serif text-xl text-[#2C2420] mb-6">Delivery Details</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Full Name *</label><input type="text" value={delivery.name} onChange={(e) => setDelivery(d => ({ ...d, name: e.target.value }))} className={inputClass} data-testid="checkout-input-name" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Phone *</label><input type="tel" value={delivery.phone} onChange={(e) => setDelivery(d => ({ ...d, phone: e.target.value }))} className={inputClass} data-testid="checkout-input-phone" /></div>
+                    <div className="md:col-span-2"><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Email</label><input type="email" value={delivery.email} onChange={(e) => setDelivery(d => ({ ...d, email: e.target.value }))} className={inputClass} data-testid="checkout-input-email" /></div>
+                    <div className="md:col-span-2"><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Address *</label><textarea value={delivery.address} onChange={(e) => setDelivery(d => ({ ...d, address: e.target.value }))} rows="2" className={`${inputClass} resize-none`} data-testid="checkout-input-address" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">City *</label><input type="text" value={delivery.city} onChange={(e) => setDelivery(d => ({ ...d, city: e.target.value }))} className={inputClass} data-testid="checkout-input-city" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">State *</label><input type="text" value={delivery.state} onChange={(e) => setDelivery(d => ({ ...d, state: e.target.value }))} className={inputClass} data-testid="checkout-input-state" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Pincode *</label><input type="text" value={delivery.pincode} onChange={(e) => setDelivery(d => ({ ...d, pincode: e.target.value }))} className={inputClass} data-testid="checkout-input-pincode" /></div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-primary mb-2">Phone *</label>
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={deliveryInfo.phone}
-                      onChange={handleInputChange}
-                      required
-                      placeholder="+91-XXXXXXXXXX"
-                      className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                      data-testid="input-phone"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-primary mb-2">Email *</label>
-                    <input
-                      type="email"
-                      name="email"
-                      value={deliveryInfo.email}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                      data-testid="input-email"
-                    />
+                </div>
+
+                {/* Payment */}
+                <div className="bg-white border border-[#E8E0D5] p-8" data-testid="payment-method-section">
+                  <h2 className="font-serif text-xl text-[#2C2420] mb-6">Payment Method</h2>
+                  <div className="space-y-3">
+                    {[
+                      { value: 'cod', label: 'Cash on Delivery', icon: Truck, desc: 'Pay when your order arrives' },
+                      { value: 'stripe', label: 'Card / UPI (Stripe)', icon: CreditCard, desc: 'Secure online payment' },
+                      { value: 'razorpay', label: 'Razorpay', icon: Wallet, desc: 'UPI, Cards, Netbanking' }
+                    ].map(({ value, label, icon: Icon, desc }) => (
+                      <button key={value} type="button" onClick={() => setPaymentMethod(value)} className={`w-full p-5 border text-left flex items-center gap-4 transition-all ${paymentMethod === value ? 'border-[#D4A373] bg-[#D4A373]/5' : 'border-[#E8E0D5] hover:bg-[#FAF8F5]'}`} data-testid={`payment-${value}`}>
+                        <div className={`w-10 h-10 flex items-center justify-center ${paymentMethod === value ? 'bg-[#4A3B32]' : 'bg-[#F3EFEA]'}`}>
+                          <Icon size={18} className={paymentMethod === value ? 'text-white' : 'text-[#786A60]'} />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-[#2C2420] text-sm">{label}</p>
+                          <p className="text-xs text-[#786A60]">{desc}</p>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
 
-              {/* Delivery Address */}
-              <div className="bg-white border border-border p-6">
-                <h2 className="text-xl font-bold text-primary mb-6">DELIVERY ADDRESS</h2>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-primary mb-2">Address *</label>
-                    <textarea
-                      name="address"
-                      value={deliveryInfo.address}
-                      onChange={handleInputChange}
-                      required
-                      rows="3"
-                      className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none resize-none"
-                      data-testid="input-address"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-primary mb-2">City *</label>
-                      <input
-                        type="text"
-                        name="city"
-                        value={deliveryInfo.city}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                        data-testid="input-city"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-primary mb-2">State *</label>
-                      <input
-                        type="text"
-                        name="state"
-                        value={deliveryInfo.state}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                        data-testid="input-state"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-primary mb-2">Pincode *</label>
-                      <input
-                        type="text"
-                        name="pincode"
-                        value={deliveryInfo.pincode}
-                        onChange={handleInputChange}
-                        required
-                        pattern="[0-9]{6}"
-                        className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                        data-testid="input-pincode"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {/* Right: Order Summary */}
+              <div className="lg:col-span-5">
+                <div className="sticky top-28 bg-white border border-[#E8E0D5] p-8" data-testid="order-summary">
+                  <h2 className="font-serif text-xl text-[#2C2420] mb-6">Order Summary</h2>
 
-              {/* Delivery Schedule */}
-              <div className="bg-white border border-border p-6">
-                <h2 className="text-xl font-bold text-primary mb-6">DELIVERY SCHEDULE (OPTIONAL)</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-primary mb-2">Preferred Date</label>
-                    <input
-                      type="date"
-                      name="delivery_date"
-                      value={deliveryInfo.delivery_date}
-                      onChange={handleInputChange}
-                      min={new Date().toISOString().split('T')[0]}
-                      className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                      data-testid="input-delivery-date"
-                    />
+                  <div className="space-y-4 mb-6 pb-6 border-b border-[#E8E0D5]">
+                    {items.map((item) => (
+                      <div key={item.product_id} className="flex items-center justify-between" data-testid={`summary-item-${item.product_id}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 bg-[#F3EFEA] overflow-hidden flex-shrink-0">{item.image_url && <img src={item.image_url} alt={item.product_name} className="w-full h-full object-cover" />}</div>
+                          <div><p className="text-sm font-medium text-[#2C2420]">{item.product_name}</p><p className="text-xs text-[#786A60]">Qty: {item.quantity}</p></div>
+                        </div>
+                        <p className="text-sm font-medium text-[#2C2420]">₹{(item.price * item.quantity).toLocaleString()}</p>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-primary mb-2">Preferred Time</label>
-                    <select
-                      name="delivery_time"
-                      value={deliveryInfo.delivery_time}
-                      onChange={handleInputChange}
-                      className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-                      data-testid="input-delivery-time"
-                    >
-                      <option value="">Any Time</option>
-                      <option value="morning">Morning (9 AM - 12 PM)</option>
-                      <option value="afternoon">Afternoon (12 PM - 4 PM)</option>
-                      <option value="evening">Evening (4 PM - 8 PM)</option>
-                    </select>
+
+                  <div className="space-y-2 mb-6 pb-6 border-b border-[#E8E0D5] text-sm">
+                    <div className="flex justify-between"><span className="text-[#786A60]">Subtotal</span><span className="text-[#2C2420]">₹{subtotal.toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span className="text-[#786A60]">Tax (5%)</span><span className="text-[#2C2420]">₹{tax.toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span className="text-[#786A60]">Delivery</span><span className={deliveryCharge === 0 ? 'text-[#A3B18A]' : 'text-[#2C2420]'}>{deliveryCharge === 0 ? 'Free' : `₹${deliveryCharge}`}</span></div>
                   </div>
-                </div>
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-primary mb-2">Special Instructions</label>
-                  <textarea
-                    name="special_instructions"
-                    value={deliveryInfo.special_instructions}
-                    onChange={handleInputChange}
-                    rows="2"
-                    placeholder="Any special delivery instructions..."
-                    className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none resize-none"
-                    data-testid="input-special-instructions"
-                  />
-                </div>
-              </div>
 
-              {/* Payment Method */}
-              <div className="bg-white border border-border p-6">
-                <h2 className="text-xl font-bold text-primary mb-6">PAYMENT METHOD</h2>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-4 p-4 border border-border cursor-pointer hover:bg-surface transition-all">
-                    <input
-                      type="radio"
-                      name="payment_method"
-                      value="stripe"
-                      checked={paymentMethod === 'stripe'}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="w-5 h-5"
-                      data-testid="payment-stripe"
-                    />
-                    <CreditCard size={24} className="text-primary" />
-                    <div className="flex-1">
-                      <p className="font-semibold text-primary">Credit/Debit Card (Stripe)</p>
-                      <p className="text-sm text-muted">Secure payment via Stripe</p>
-                    </div>
-                  </label>
+                  <div className="flex justify-between mb-8">
+                    <span className="font-serif text-lg text-[#2C2420]">Total</span>
+                    <span className="font-serif text-xl text-[#2C2420]" data-testid="checkout-total">₹{total.toLocaleString()}</span>
+                  </div>
 
-                  <label className="flex items-center gap-4 p-4 border border-border cursor-pointer hover:bg-surface transition-all">
-                    <input
-                      type="radio"
-                      name="payment_method"
-                      value="razorpay"
-                      checked={paymentMethod === 'razorpay'}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="w-5 h-5"
-                      data-testid="payment-razorpay"
-                    />
-                    <Wallet size={24} className="text-primary" />
-                    <div className="flex-1">
-                      <p className="font-semibold text-primary">UPI / Cards / Wallets (Razorpay)</p>
-                      <p className="text-sm text-muted">Pay with UPI, cards, netbanking, wallets</p>
-                    </div>
-                  </label>
+                  <button type="submit" disabled={submitting} className="w-full bg-[#4A3B32] text-white py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors duration-300 disabled:opacity-50" data-testid="place-order-button">
+                    {submitting ? 'Processing...' : 'Place Order'}
+                  </button>
 
-                  <label className="flex items-center gap-4 p-4 border border-border cursor-pointer hover:bg-surface transition-all">
-                    <input
-                      type="radio"
-                      name="payment_method"
-                      value="cod"
-                      checked={paymentMethod === 'cod'}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="w-5 h-5"
-                      data-testid="payment-cod"
-                    />
-                    <Truck size={24} className="text-primary" />
-                    <div className="flex-1">
-                      <p className="font-semibold text-primary">Cash on Delivery</p>
-                      <p className="text-sm text-muted">Pay when you receive</p>
-                    </div>
-                  </label>
+                  {subtotal < 500 && <p className="text-xs text-[#D4A373] text-center mt-3">Add ₹{(500 - subtotal).toLocaleString()} more for free delivery</p>}
                 </div>
               </div>
             </div>
+          </form>
+        </div>
+      </main>
 
-            {/* Order Summary */}
-            <div className="lg:col-span-1">
-              <div className="bg-white border border-border p-6 sticky top-24">
-                <h2 className="text-xl font-bold text-primary mb-6">ORDER SUMMARY</h2>
-
-                {/* Items */}
-                <div className="space-y-4 mb-6 max-h-64 overflow-y-auto">
-                  {cart?.items?.map((item) => (
-                    <div key={`${item.product_id}-${item.variant_id}`} className="flex gap-3">
-                      <div className="w-16 h-16 bg-surface flex-shrink-0">
-                        {item.image_url && <img src={item.image_url} alt={item.product_name} className="w-full h-full object-cover" />}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-primary line-clamp-2">{item.product_name}</p>
-                        <p className="text-xs text-muted">Qty: {item.quantity}</p>
-                        <p className="text-sm font-semibold text-primary">₹{(item.price * item.quantity).toFixed(2)}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Totals */}
-                <div className="space-y-3 mb-6 pt-4 border-t border-border">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted">Subtotal</span>
-                    <span className="font-semibold text-primary">₹{subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted">Tax (5%)</span>
-                    <span className="font-semibold text-primary">₹{tax.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted">Delivery</span>
-                    <span className="font-semibold text-primary">₹{deliveryCharge.toFixed(2)}</span>
-                  </div>
-                  <div className="pt-3 border-t border-border flex justify-between">
-                    <span className="font-bold text-primary">Total</span>
-                    <span className="text-xl font-black text-primary">₹{total.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-primary text-white hover:bg-[#333333] transition-all border border-primary px-8 py-4 font-bold tracking-wide disabled:opacity-50"
-                  data-testid="place-order-button"
-                >
-                  {loading ? 'PROCESSING...' : paymentMethod === 'cod' ? 'PLACE ORDER' : 'PROCEED TO PAYMENT'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </form>
-      </div>
+      <BakeryFooter />
     </div>
   );
 };

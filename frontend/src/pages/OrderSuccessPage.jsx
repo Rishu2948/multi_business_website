@@ -1,177 +1,104 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import BakeryNavbar from '../components/common/BakeryNavbar';
+import BakeryFooter from '../components/common/BakeryFooter';
 import apiClient from '../utils/api';
-import { CheckCircle, Package, Download } from 'lucide-react';
+import { CheckCircle, Package, CreditCard, MapPin } from 'lucide-react';
 
 const OrderSuccessPage = () => {
   const [searchParams] = useSearchParams();
+  const orderId = searchParams.get('orderId');
+  const method = searchParams.get('method');
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [paymentStatus, setPaymentStatus] = useState('pending');
-
-  const orderId = searchParams.get('order_id');
-  const sessionId = searchParams.get('session_id');
-  const paymentMethod = searchParams.get('payment_method');
 
   useEffect(() => {
-    const fetchOrderDetails = async () => {
+    if (!orderId) { setLoading(false); return; }
+    const fetchOrder = async () => {
       try {
-        if (sessionId && paymentMethod !== 'cod') {
-          // Poll payment status for online payments
-          const statusResponse = await apiClient.get(`/payments/checkout-status/${sessionId}`);
-          setPaymentStatus(statusResponse.data.payment_status);
-        }
-
-        if (orderId) {
-          const orderResponse = await apiClient.get(`/orders/${orderId}`);
-          setOrder(orderResponse.data);
-        }
-      } catch (error) {
-        console.error('Error fetching order:', error);
-      } finally {
-        setLoading(false);
-      }
+        const res = await apiClient.get(`/orders/${orderId}`);
+        setOrder(res.data);
+      } catch (error) { console.error('Error:', error); }
+      finally { setLoading(false); }
     };
-
-    fetchOrderDetails();
-
-    // Poll payment status every 2 seconds for online payments
-    let interval;
-    if (sessionId && paymentMethod !== 'cod') {
-      interval = setInterval(async () => {
-        try {
-          const statusResponse = await apiClient.get(`/payments/checkout-status/${sessionId}`);
-          if (statusResponse.data.payment_status === 'paid') {
-            setPaymentStatus('paid');
-            clearInterval(interval);
-          }
-        } catch (error) {
-          console.error('Error polling status:', error);
-        }
-      }, 2000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [orderId, sessionId, paymentMethod]);
+    fetchOrder();
+  }, [orderId]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted">Processing your order...</p>
-        </div>
-      </div>
-    );
+    return (<div className="min-h-screen flex flex-col bg-[#FAF8F5]"><BakeryNavbar /><div className="flex-1 flex items-center justify-center"><div className="w-12 h-12 border-4 border-[#4A3B32] border-t-transparent rounded-full animate-spin" /></div></div>);
   }
 
   return (
-    <div className="min-h-screen bg-surface py-12" data-testid="order-success-page">
-      <div className="max-w-3xl mx-auto px-8">
-        {/* Success Message */}
-        <div className="bg-white border border-border p-8 text-center mb-8">
-          <CheckCircle size={64} className="mx-auto text-green-600 mb-6" strokeWidth={1.5} />
-          <h1 className="text-4xl font-black text-primary uppercase mb-4">
-            {paymentMethod === 'cod' ? 'ORDER PLACED!' : paymentStatus === 'paid' ? 'PAYMENT SUCCESSFUL!' : 'ORDER RECEIVED!'}
-          </h1>
-          <p className="text-base text-muted mb-6">
-            {paymentMethod === 'cod' 
-              ? 'Your order has been placed successfully. Pay cash on delivery.'
-              : paymentStatus === 'paid'
-              ? 'Thank you for your payment. Your order is confirmed!'
-              : 'We are processing your payment. You will receive a confirmation email shortly.'}
-          </p>
+    <div className="min-h-screen flex flex-col bg-[#FAF8F5]" data-testid="order-success-page">
+      <BakeryNavbar />
+
+      <main className="flex-1 py-16 md:py-24">
+        <div className="max-w-3xl mx-auto px-6 md:px-12">
+          {/* Thank You Hero */}
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6 }} className="text-center mb-16">
+            <div className="w-20 h-20 bg-[#A3B18A]/20 flex items-center justify-center mx-auto mb-6">
+              <CheckCircle size={40} className="text-[#A3B18A]" strokeWidth={1.5} />
+            </div>
+            <h1 className="font-serif text-5xl md:text-6xl text-[#2C2420] italic mb-4">Thank You</h1>
+            <p className="text-base text-[#786A60]">Your order has been placed successfully</p>
+            {orderId && <p className="text-sm text-[#D4A373] mt-2 font-semibold tracking-wide">Order #{orderId}</p>}
+          </motion.div>
+
           {order && (
-            <div className="inline-block bg-surface px-6 py-3">
-              <p className="text-sm text-muted mb-1">Order ID</p>
-              <p className="text-xl font-bold text-primary">{order.order_id}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Order Details */}
-        {order && (
-          <div className="bg-white border border-border p-6 mb-8">
-            <h2 className="text-xl font-bold text-primary mb-6">ORDER DETAILS</h2>
-            
-            {/* Items */}
-            <div className="space-y-4 mb-6">
-              {order.items.map((item) => (
-                <div key={`${item.product_id}-${item.variant_id}`} className="flex gap-4 pb-4 border-b border-border last:border-0">
-                  <div className="w-16 h-16 bg-surface flex-shrink-0">
-                    {item.image_url && <img src={item.image_url} alt={item.product_name} className="w-full h-full object-cover" />}
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-primary">{item.product_name}</h3>
-                    <p className="text-sm text-muted">Quantity: {item.quantity}</p>
-                    <p className="text-sm font-semibold text-primary">₹{item.subtotal.toFixed(2)}</p>
-                  </div>
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+              {/* Order Details */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                <div className="bg-white border border-[#E8E0D5] p-6" data-testid="order-status-card">
+                  <Package size={20} className="text-[#D4A373] mb-3" strokeWidth={1.5} />
+                  <p className="text-xs tracking-[0.15em] uppercase text-[#786A60] font-semibold mb-1">Status</p>
+                  <p className="font-serif text-lg text-[#2C2420] capitalize">{order.order_status}</p>
                 </div>
-              ))}
-            </div>
+                <div className="bg-white border border-[#E8E0D5] p-6" data-testid="payment-method-card">
+                  <CreditCard size={20} className="text-[#D4A373] mb-3" strokeWidth={1.5} />
+                  <p className="text-xs tracking-[0.15em] uppercase text-[#786A60] font-semibold mb-1">Payment</p>
+                  <p className="font-serif text-lg text-[#2C2420] uppercase">{method || order.payment_method}</p>
+                </div>
+                <div className="bg-white border border-[#E8E0D5] p-6" data-testid="order-total-card">
+                  <MapPin size={20} className="text-[#D4A373] mb-3" strokeWidth={1.5} />
+                  <p className="text-xs tracking-[0.15em] uppercase text-[#786A60] font-semibold mb-1">Total</p>
+                  <p className="font-serif text-lg text-[#2C2420]">₹{order.total?.toLocaleString()}</p>
+                </div>
+              </div>
 
-            {/* Totals */}
-            <div className="space-y-2 pt-4 border-t border-border">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted">Subtotal</span>
-                <span className="font-semibold text-primary">₹{order.subtotal.toFixed(2)}</span>
+              {/* Items */}
+              <div className="bg-white border border-[#E8E0D5] mb-10" data-testid="order-items-section">
+                <div className="p-6 border-b border-[#E8E0D5]"><h2 className="font-serif text-xl text-[#2C2420]">Order Items</h2></div>
+                {order.items?.map((item, i) => (
+                  <div key={i} className="px-6 py-4 border-b border-[#E8E0D5] last:border-0 flex justify-between items-center">
+                    <div><p className="text-sm font-medium text-[#2C2420]">{item.product_name}</p><p className="text-xs text-[#786A60]">Qty: {item.quantity}</p></div>
+                    <p className="text-sm font-medium text-[#2C2420]">₹{item.subtotal?.toLocaleString()}</p>
+                  </div>
+                ))}
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted">Tax</span>
-                <span className="font-semibold text-primary">₹{order.tax.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted">Delivery</span>
-                <span className="font-semibold text-primary">₹{order.delivery_charge.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t border-border">
-                <span className="font-bold text-primary">Total</span>
-                <span className="text-xl font-black text-primary">₹{order.total.toFixed(2)}</span>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {/* Delivery Information */}
-        {order && order.delivery_info && (
-          <div className="bg-white border border-border p-6 mb-8">
-            <h2 className="text-xl font-bold text-primary mb-6">DELIVERY INFORMATION</h2>
-            <div className="space-y-2 text-sm">
-              <p><span className="font-semibold text-primary">Name:</span> {order.delivery_info.name}</p>
-              <p><span className="font-semibold text-primary">Phone:</span> {order.delivery_info.phone}</p>
-              <p><span className="font-semibold text-primary">Email:</span> {order.delivery_info.email}</p>
-              <p><span className="font-semibold text-primary">Address:</span> {order.delivery_info.address}, {order.delivery_info.city}, {order.delivery_info.state} - {order.delivery_info.pincode}</p>
-              {order.delivery_info.delivery_date && (
-                <p><span className="font-semibold text-primary">Delivery Date:</span> {order.delivery_info.delivery_date}</p>
+              {/* Delivery Info */}
+              {order.delivery_info && (
+                <div className="bg-white border border-[#E8E0D5] p-6 mb-10" data-testid="delivery-info-card">
+                  <h2 className="font-serif text-xl text-[#2C2420] mb-4">Delivery Address</h2>
+                  <p className="text-sm text-[#786A60]">{order.delivery_info.name}</p>
+                  <p className="text-sm text-[#786A60]">{order.delivery_info.address}</p>
+                  <p className="text-sm text-[#786A60]">{order.delivery_info.city}, {order.delivery_info.state} - {order.delivery_info.pincode}</p>
+                  <p className="text-sm text-[#786A60]">{order.delivery_info.phone}</p>
+                </div>
               )}
-              {order.delivery_info.delivery_time && (
-                <p><span className="font-semibold text-primary">Delivery Time:</span> {order.delivery_info.delivery_time}</p>
-              )}
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-4 justify-center">
-          <Link
-            to="/my-orders"
-            className="inline-flex items-center gap-2 bg-primary text-white hover:bg-[#333333] transition-all border border-primary px-8 py-3 font-bold tracking-wide"
-            data-testid="view-orders-button"
-          >
-            <Package size={20} />
-            VIEW MY ORDERS
-          </Link>
-          <Link
-            to="/business/whisked_words/catalog"
-            className="inline-flex items-center gap-2 bg-transparent text-primary hover:bg-secondary transition-all border border-border px-8 py-3 font-bold tracking-wide"
-            data-testid="continue-shopping-button"
-          >
-            CONTINUE SHOPPING
-          </Link>
+          {/* Actions */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link to="/my-orders" className="bg-[#4A3B32] text-white px-8 py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors text-center" data-testid="view-orders-button">View My Orders</Link>
+            <Link to="/business/whisked_words/catalog" className="bg-transparent border border-[#4A3B32] text-[#4A3B32] px-8 py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#4A3B32] hover:text-white transition-colors text-center" data-testid="continue-shopping-button">Continue Shopping</Link>
+          </div>
         </div>
-      </div>
+      </main>
+
+      <BakeryFooter />
     </div>
   );
 };

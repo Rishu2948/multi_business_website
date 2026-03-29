@@ -1,458 +1,167 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import BakeryNavbar from '../components/common/BakeryNavbar';
+import BakeryFooter from '../components/common/BakeryFooter';
 import apiClient from '../utils/api';
 import { toast } from 'sonner';
-import { ChevronRight, ChevronLeft, Cake, Calendar, MapPin } from 'lucide-react';
+import { Cake, ArrowRight, ArrowLeft, Check } from 'lucide-react';
+
+const steps = ['Cake Details', 'Delivery', 'Contact'];
 
 const CustomCakeOrderPage = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const [step, setStep] = useState(1);
-  const [loading, setLoading] = useState(false);
-
+  const { isAuthenticated } = useAuth();
+  const [currentStep, setCurrentStep] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
-    // Step 1: Cake Details
-    cake_type: 'regular',
-    weight: '500g',
-    flavor: 'chocolate',
-    shape: 'round',
-    message_on_cake: '',
-    special_instructions: '',
-    image_reference_url: '',
-    
-    // Step 2: Delivery
-    delivery_date: '',
-    delivery_time: '',
-    
-    // Step 3: Contact
-    name: user?.name || '',
-    phone: '',
-    email: user?.email || '',
-    address: '',
-    city: '',
-    state: '',
-    pincode: ''
+    flavor: '', size: '', tiers: '1', message: '', dietary: [], shape: 'round',
+    date: '', time: 'morning', occasion: '',
+    name: '', phone: '', email: '', address: '', city: '', state: '', pincode: '', notes: ''
   });
 
-  const cakeTypes = ['Regular Cake', 'Photo Cake', 'Designer Cake', 'Wedding Cake', 'Birthday Cake'];
-  const weights = ['500g', '1kg', '1.5kg', '2kg', '3kg', '5kg'];
-  const flavors = ['Chocolate', 'Vanilla', 'Strawberry', 'Butterscotch', 'Red Velvet', 'Black Forest', 'Pineapple', 'Mango'];
-  const shapes = ['Round', 'Square', 'Rectangle', 'Heart', 'Custom'];
+  const inputClass = "w-full border border-[#E8E0D5] px-4 py-3 focus:ring-1 focus:ring-[#4A3B32] focus:border-[#4A3B32] transition-all outline-none bg-white text-[#2C2420]";
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
+  const flavors = ['Vanilla', 'Chocolate', 'Red Velvet', 'Butterscotch', 'Pineapple', 'Black Forest', 'Strawberry', 'Mango'];
+  const sizes = ['500g (Small)', '1kg (Regular)', '1.5kg (Medium)', '2kg (Large)', '3kg (Extra Large)'];
+  const shapes = ['round', 'square', 'heart', 'rectangle'];
+  const dietaryOptions = ['Eggless', 'Sugar-Free', 'Gluten-Free', 'Vegan'];
 
-  const handleNext = () => {
-    if (step === 1) {
-      if (!formData.cake_type || !formData.weight || !formData.flavor || !formData.shape) {
-        toast.error('Please fill all cake details');
-        return;
-      }
-    } else if (step === 2) {
-      if (!formData.delivery_date || !formData.delivery_time) {
-        toast.error('Please select delivery date and time');
-        return;
-      }
-    }
-    setStep(step + 1);
-  };
-
-  const handleBack = () => {
-    setStep(step - 1);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!formData.name || !formData.phone || !formData.email || !formData.address || !formData.city || !formData.state || !formData.pincode) {
-      toast.error('Please fill all delivery information');
-      return;
-    }
-
-    setLoading(true);
+  const handleSubmit = async () => {
+    if (!isAuthenticated) { toast.error('Please login first'); navigate('/login'); return; }
+    if (!formData.flavor || !formData.size || !formData.date || !formData.name || !formData.phone || !formData.address) { toast.error('Please fill all required fields'); return; }
+    setSubmitting(true);
     try {
-      // Get a cake product (using first product from whisked_words as base)
-      const productsRes = await apiClient.get('/products?business_id=whisked_words&limit=1');
-      const productId = productsRes.data.products[0]?.product_id;
-
-      if (!productId) {
-        toast.error('Unable to create custom order. Please try again.');
-        setLoading(false);
-        return;
-      }
-
-      const customOrderData = {
-        product_id: productId,
-        cake_type: formData.cake_type,
-        weight: formData.weight,
-        flavor: formData.flavor,
-        shape: formData.shape,
-        message_on_cake: formData.message_on_cake,
-        special_instructions: formData.special_instructions,
-        image_reference_url: formData.image_reference_url,
-        delivery_date: formData.delivery_date,
-        delivery_time: formData.delivery_time,
-        delivery_info: {
-          name: formData.name,
-          phone: formData.phone,
-          email: formData.email,
-          address: formData.address,
-          city: formData.city,
-          state: formData.state,
-          pincode: formData.pincode
-        }
-      };
-
-      const response = await apiClient.post('/custom-orders/create', customOrderData);
-      
-      toast.success('Custom cake order request submitted! We will contact you with a quote.');
-      setTimeout(() => {
-        navigate('/my-orders');
-      }, 2000);
-    } catch (error) {
-      console.error('Error creating custom order:', error);
-      toast.error(error.response?.data?.detail || 'Failed to create custom order');
-    } finally {
-      setLoading(false);
-    }
+      await apiClient.post('/custom-orders/create', {
+        specifications: {
+          flavor: formData.flavor, size: formData.size, tiers: parseInt(formData.tiers),
+          message: formData.message, dietary: formData.dietary, shape: formData.shape, occasion: formData.occasion
+        },
+        delivery_date: formData.date, delivery_time: formData.time,
+        delivery_info: { name: formData.name, phone: formData.phone, email: formData.email, address: formData.address, city: formData.city, state: formData.state, pincode: formData.pincode },
+        notes: formData.notes
+      });
+      toast.success('Custom cake order placed!');
+      navigate('/my-orders');
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to place order'); }
+    finally { setSubmitting(false); }
   };
 
-  const renderStep1 = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-primary mb-2">CAKE DETAILS</h2>
-        <p className="text-sm text-muted">Customize your perfect cake</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Cake Type *</label>
-          <select
-            name="cake_type"
-            value={formData.cake_type}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="cake-type"
-          >
-            {cakeTypes.map(type => (
-              <option key={type} value={type.toLowerCase().replace(' ', '_')}>{type}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Weight *</label>
-          <select
-            name="weight"
-            value={formData.weight}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="cake-weight"
-          >
-            {weights.map(weight => (
-              <option key={weight} value={weight}>{weight}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Flavor *</label>
-          <select
-            name="flavor"
-            value={formData.flavor}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="cake-flavor"
-          >
-            {flavors.map(flavor => (
-              <option key={flavor} value={flavor.toLowerCase()}>{flavor}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Shape *</label>
-          <select
-            name="shape"
-            value={formData.shape}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="cake-shape"
-          >
-            {shapes.map(shape => (
-              <option key={shape} value={shape.toLowerCase()}>{shape}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2">Message on Cake (Optional)</label>
-        <input
-          type="text"
-          name="message_on_cake"
-          value={formData.message_on_cake}
-          onChange={handleChange}
-          placeholder="e.g., Happy Birthday!"
-          maxLength="50"
-          className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-          data-testid="cake-message"
-        />
-        <p className="text-xs text-muted mt-1">Max 50 characters</p>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2">Reference Image URL (Optional)</label>
-        <input
-          type="url"
-          name="image_reference_url"
-          value={formData.image_reference_url}
-          onChange={handleChange}
-          placeholder="https://example.com/cake-design.jpg"
-          className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-          data-testid="cake-image-url"
-        />
-        <p className="text-xs text-muted mt-1">Provide a URL to your desired cake design</p>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2">Special Instructions (Optional)</label>
-        <textarea
-          name="special_instructions"
-          value={formData.special_instructions}
-          onChange={handleChange}
-          rows="4"
-          placeholder="Any specific requirements or allergies..."
-          className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none resize-none"
-          data-testid="cake-instructions"
-        />
-      </div>
-    </div>
-  );
-
-  const renderStep2 = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-primary mb-2">DELIVERY SCHEDULE</h2>
-        <p className="text-sm text-muted">When do you need your cake?</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Delivery Date *</label>
-          <input
-            type="date"
-            name="delivery_date"
-            value={formData.delivery_date}
-            onChange={handleChange}
-            min={new Date(Date.now() + 24*60*60*1000).toISOString().split('T')[0]}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="delivery-date"
-          />
-          <p className="text-xs text-muted mt-1">Minimum 24 hours advance notice required</p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Delivery Time *</label>
-          <select
-            name="delivery_time"
-            value={formData.delivery_time}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="delivery-time"
-          >
-            <option value="">Select Time</option>
-            <option value="morning">Morning (9 AM - 12 PM)</option>
-            <option value="afternoon">Afternoon (12 PM - 4 PM)</option>
-            <option value="evening">Evening (4 PM - 8 PM)</option>
-          </select>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderStep3 = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-primary mb-2">DELIVERY INFORMATION</h2>
-        <p className="text-sm text-muted">Where should we deliver your cake?</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Full Name *</label>
-          <input
-            type="text"
-            name="name"
-            value={formData.name}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="contact-name"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Phone *</label>
-          <input
-            type="tel"
-            name="phone"
-            value={formData.phone}
-            onChange={handleChange}
-            placeholder="+91-XXXXXXXXXX"
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="contact-phone"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-primary mb-2">Email *</label>
-          <input
-            type="email"
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="contact-email"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-primary mb-2">Address *</label>
-          <textarea
-            name="address"
-            value={formData.address}
-            onChange={handleChange}
-            rows="3"
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none resize-none"
-            data-testid="contact-address"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">City *</label>
-          <input
-            type="text"
-            name="city"
-            value={formData.city}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="contact-city"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">State *</label>
-          <input
-            type="text"
-            name="state"
-            value={formData.state}
-            onChange={handleChange}
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="contact-state"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-primary mb-2">Pincode *</label>
-          <input
-            type="text"
-            name="pincode"
-            value={formData.pincode}
-            onChange={handleChange}
-            pattern="[0-9]{6}"
-            className="w-full border border-border px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none"
-            data-testid="contact-pincode"
-          />
-        </div>
-      </div>
-    </div>
-  );
+  const toggleDietary = (opt) => setFormData(p => ({ ...p, dietary: p.dietary.includes(opt) ? p.dietary.filter(d => d !== opt) : [...p.dietary, opt] }));
 
   return (
-    <div className="min-h-screen bg-surface py-12" data-testid="custom-cake-order-page">
-      <div className="max-w-4xl mx-auto px-8">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <Cake size={48} className="mx-auto text-primary mb-4" strokeWidth={1.5} />
-          <h1 className="text-4xl font-black text-primary uppercase mb-2">CUSTOM CAKE ORDER</h1>
-          <p className="text-base text-muted">Design your perfect cake in 3 easy steps</p>
-        </div>
+    <div className="min-h-screen flex flex-col bg-[#FAF8F5]" data-testid="custom-cake-order-page">
+      <BakeryNavbar />
 
-        {/* Progress Steps */}
-        <div className="flex items-center justify-between mb-12">
-          {[1, 2, 3].map((num) => (
-            <div key={num} className="flex items-center flex-1">
-              <div className="flex flex-col items-center flex-1">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
-                  step >= num ? 'bg-accent text-white' : 'bg-surface text-muted'
-                }`}>
-                  {num}
+      <main className="flex-1 py-16 md:py-24">
+        <div className="max-w-6xl mx-auto px-6 md:px-12">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+            {/* Left: Sticky Image */}
+            <div className="hidden lg:block lg:col-span-5">
+              <div className="sticky top-28">
+                <div className="aspect-[3/4] overflow-hidden mb-6">
+                  <img
+                    src="https://static.prod-images.emergentagent.com/jobs/a640ac3b-0600-4eca-a0b3-c7b9e3903f25/images/ff2d564e3a4ef380991ac5aa321abae22f134886559801737a79c2a54b474bb4.png"
+                    alt="Custom Cake Showcase"
+                    className="w-full h-full object-cover"
+                  />
                 </div>
-                <p className={`text-xs mt-2 font-medium ${
-                  step >= num ? 'text-primary' : 'text-muted'
-                }`}>
-                  {num === 1 ? 'CAKE DETAILS' : num === 2 ? 'DELIVERY' : 'CONTACT'}
-                </p>
+                <p className="font-serif text-lg text-[#2C2420] italic text-center">Every cake tells a story</p>
               </div>
-              {num < 3 && (
-                <div className={`h-1 flex-1 mx-2 ${
-                  step > num ? 'bg-accent' : 'bg-surface'
-                }`} />
-              )}
             </div>
-          ))}
+
+            {/* Right: Form */}
+            <div className="lg:col-span-7">
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+                <p className="text-xs tracking-[0.2em] uppercase text-[#D4A373] font-semibold mb-2">Made to Order</p>
+                <h1 className="font-serif text-4xl md:text-5xl text-[#2C2420] mb-8 italic">Custom Cake</h1>
+              </motion.div>
+
+              {/* Steps */}
+              <div className="flex items-center gap-4 mb-10">
+                {steps.map((step, i) => (
+                  <div key={step} className="flex items-center gap-2">
+                    <div className={`w-8 h-8 flex items-center justify-center text-sm font-semibold transition-colors ${i <= currentStep ? 'bg-[#4A3B32] text-white' : 'bg-[#F3EFEA] text-[#786A60]'}`}>
+                      {i < currentStep ? <Check size={14} /> : i + 1}
+                    </div>
+                    <span className={`text-xs tracking-[0.1em] uppercase font-semibold ${i <= currentStep ? 'text-[#2C2420]' : 'text-[#786A60]'}`}>{step}</span>
+                    {i < steps.length - 1 && <div className={`w-12 h-[1px] ${i < currentStep ? 'bg-[#4A3B32]' : 'bg-[#E8E0D5]'}`} />}
+                  </div>
+                ))}
+              </div>
+
+              {/* Step 1: Cake Details */}
+              {currentStep === 0 && (
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+                  <div>
+                    <label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-3">Flavor *</label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {flavors.map(f => (
+                        <button key={f} type="button" onClick={() => setFormData(p => ({ ...p, flavor: f }))} className={`py-3 px-4 text-sm border transition-all ${formData.flavor === f ? 'bg-[#4A3B32] text-white border-[#4A3B32]' : 'border-[#E8E0D5] text-[#4A3B32] hover:bg-[#FAF8F5]'}`} data-testid={`flavor-${f.toLowerCase()}`}>{f}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-3">Size *</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {sizes.map(s => (
+                        <button key={s} type="button" onClick={() => setFormData(p => ({ ...p, size: s }))} className={`py-3 px-4 text-sm border text-left transition-all ${formData.size === s ? 'bg-[#4A3B32] text-white border-[#4A3B32]' : 'border-[#E8E0D5] text-[#4A3B32] hover:bg-[#FAF8F5]'}`} data-testid={`size-${s.split(' ')[0]}`}>{s}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Tiers</label><select value={formData.tiers} onChange={(e) => setFormData(p => ({ ...p, tiers: e.target.value }))} className={inputClass} data-testid="cake-tiers">{[1,2,3,4].map(t => <option key={t} value={t}>{t} Tier{t > 1 ? 's' : ''}</option>)}</select></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Shape</label><div className="flex gap-2">{shapes.map(s => (<button key={s} type="button" onClick={() => setFormData(p => ({ ...p, shape: s }))} className={`flex-1 py-3 text-xs uppercase tracking-wide border transition-all ${formData.shape === s ? 'bg-[#4A3B32] text-white border-[#4A3B32]' : 'border-[#E8E0D5] text-[#4A3B32] hover:bg-[#FAF8F5]'}`} data-testid={`shape-${s}`}>{s}</button>))}</div></div>
+                  </div>
+                  <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-3">Dietary Requirements</label><div className="flex flex-wrap gap-2">{dietaryOptions.map(d => (<button key={d} type="button" onClick={() => toggleDietary(d)} className={`px-4 py-2 text-xs font-semibold border transition-all ${formData.dietary.includes(d) ? 'bg-[#A3B18A] text-white border-[#A3B18A]' : 'border-[#E8E0D5] text-[#4A3B32] hover:bg-[#FAF8F5]'}`} data-testid={`dietary-${d.toLowerCase()}`}>{d}</button>))}</div></div>
+                  <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Cake Message</label><input type="text" value={formData.message} onChange={(e) => setFormData(p => ({ ...p, message: e.target.value }))} placeholder="Happy Birthday, Sarah!" className={inputClass} data-testid="cake-message" /></div>
+                  <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Occasion</label><input type="text" value={formData.occasion} onChange={(e) => setFormData(p => ({ ...p, occasion: e.target.value }))} placeholder="Birthday, Wedding, Anniversary..." className={inputClass} data-testid="cake-occasion" /></div>
+                </motion.div>
+              )}
+
+              {/* Step 2: Delivery */}
+              {currentStep === 1 && (
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+                  <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Delivery Date *</label><input type="date" value={formData.date} onChange={(e) => setFormData(p => ({ ...p, date: e.target.value }))} min={new Date(Date.now() + 2*86400000).toISOString().split('T')[0]} className={`${inputClass} max-w-xs`} data-testid="delivery-date" /></div>
+                  <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Preferred Time</label><select value={formData.time} onChange={(e) => setFormData(p => ({ ...p, time: e.target.value }))} className={inputClass} data-testid="delivery-time"><option value="morning">Morning (9 AM – 12 PM)</option><option value="afternoon">Afternoon (12 – 4 PM)</option><option value="evening">Evening (4 – 8 PM)</option></select></div>
+                  <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Special Instructions</label><textarea value={formData.notes} onChange={(e) => setFormData(p => ({ ...p, notes: e.target.value }))} rows="3" placeholder="Any special requirements..." className={`${inputClass} resize-none`} data-testid="special-notes" /></div>
+                </motion.div>
+              )}
+
+              {/* Step 3: Contact */}
+              {currentStep === 2 && (
+                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Name *</label><input type="text" value={formData.name} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} className={inputClass} data-testid="contact-name" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Phone *</label><input type="tel" value={formData.phone} onChange={(e) => setFormData(p => ({ ...p, phone: e.target.value }))} className={inputClass} data-testid="contact-phone" /></div>
+                    <div className="md:col-span-2"><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Email</label><input type="email" value={formData.email} onChange={(e) => setFormData(p => ({ ...p, email: e.target.value }))} className={inputClass} data-testid="contact-email" /></div>
+                    <div className="md:col-span-2"><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Address *</label><textarea value={formData.address} onChange={(e) => setFormData(p => ({ ...p, address: e.target.value }))} rows="2" className={`${inputClass} resize-none`} data-testid="contact-address" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">City *</label><input type="text" value={formData.city} onChange={(e) => setFormData(p => ({ ...p, city: e.target.value }))} className={inputClass} data-testid="contact-city" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">State</label><input type="text" value={formData.state} onChange={(e) => setFormData(p => ({ ...p, state: e.target.value }))} className={inputClass} data-testid="contact-state" /></div>
+                    <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Pincode</label><input type="text" value={formData.pincode} onChange={(e) => setFormData(p => ({ ...p, pincode: e.target.value }))} className={inputClass} data-testid="contact-pincode" /></div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Navigation Buttons */}
+              <div className="flex items-center justify-between mt-10 pt-8 border-t border-[#E8E0D5]">
+                {currentStep > 0 ? (
+                  <button onClick={() => setCurrentStep(s => s - 1)} className="flex items-center gap-2 text-xs tracking-[0.15em] uppercase font-semibold text-[#4A3B32] hover:text-[#D4A373] transition-colors" data-testid="prev-step-button"><ArrowLeft size={14} /> Previous</button>
+                ) : <div />}
+
+                {currentStep < steps.length - 1 ? (
+                  <button onClick={() => setCurrentStep(s => s + 1)} className="bg-[#4A3B32] text-white px-8 py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors flex items-center gap-2" data-testid="next-step-button">Next <ArrowRight size={14} /></button>
+                ) : (
+                  <button onClick={handleSubmit} disabled={submitting} className="bg-[#4A3B32] text-white px-8 py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors disabled:opacity-50 flex items-center gap-2" data-testid="submit-custom-order-button">{submitting ? 'Placing Order...' : 'Place Custom Order'} <Cake size={16} /></button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
+      </main>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit}>
-          <div className="bg-white border border-border p-8 mb-8">
-            {step === 1 && renderStep1()}
-            {step === 2 && renderStep2()}
-            {step === 3 && renderStep3()}
-          </div>
-
-          {/* Navigation Buttons */}
-          <div className="flex items-center justify-between">
-            {step > 1 && (
-              <button
-                type="button"
-                onClick={handleBack}
-                className="bg-transparent text-primary hover:bg-secondary transition-all border border-border px-8 py-3 font-bold tracking-wide flex items-center gap-2"
-                data-testid="back-button"
-              >
-                <ChevronLeft size={20} />
-                BACK
-              </button>
-            )}
-            
-            <div className="flex-1" />
-
-            {step < 3 ? (
-              <button
-                type="button"
-                onClick={handleNext}
-                className="bg-accent text-white hover:bg-[#002280] transition-all border border-accent px-8 py-3 font-bold tracking-wide flex items-center gap-2"
-                data-testid="next-button"
-              >
-                NEXT
-                <ChevronRight size={20} />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={loading}
-                className="bg-primary text-white hover:bg-[#333333] transition-all border border-primary px-8 py-3 font-bold tracking-wide disabled:opacity-50"
-                data-testid="submit-order-button"
-              >
-                {loading ? 'SUBMITTING...' : 'SUBMIT ORDER REQUEST'}
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
+      <BakeryFooter />
     </div>
   );
 };
