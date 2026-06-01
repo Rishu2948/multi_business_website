@@ -908,6 +908,8 @@ order_routes.set_db(db)
 custom_order_routes.set_db(db)
 import order_management_routes
 order_management_routes.set_db(db)
+import sse_routes
+sse_routes.set_db(db)
 additional_routes.set_db(db)
 
 # Include routers
@@ -919,6 +921,7 @@ app.include_router(additional_routes.reviews_router)
 app.include_router(additional_routes.loyalty_router)
 app.include_router(additional_routes.subscriptions_router)
 app.include_router(order_management_routes.router)
+app.include_router(sse_routes.router)
 
 app.add_middleware(
     CORSMiddleware,

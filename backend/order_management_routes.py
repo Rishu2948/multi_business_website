@@ -4,7 +4,7 @@ import uuid
 import asyncio
 import os
 import logging
-import resend
+from email_service import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -73,17 +73,110 @@ async def create_notification(user_id, title, message, order_id=None, notif_type
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.notifications.insert_one(notif)
+    # Push real-time SSE event
+    try:
+        from sse_routes import publish_event
+        publish_event(user_id, "notification", {
+            "notification_id": notif["notification_id"],
+            "title": title,
+            "message": message,
+            "order_id": order_id,
+            "type": notif_type
+        })
+    except Exception:
+        pass
     return notif["notification_id"]
 
-# ============= EMAIL HELPER =============
-async def send_order_email(to_email, order):
-    api_key = os.environ.get("RESEND_API_KEY")
-    sender = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
-    if not api_key or api_key == "re_test_placeholder":
-        logger.info(f"Email skipped (no API key): order {order['order_id']} to {to_email}")
-        return
 
-    resend.api_key = api_key
+# ============= SSE ORDER EVENT HELPER =============
+def _publish_order_event(order, new_status):
+    """Push real-time order status update to relevant users."""
+    try:
+        from sse_routes import publish_event
+        event_data = {
+            "order_id": order["order_id"],
+            "status": new_status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        # Notify order owner
+        if order.get("user_id"):
+            publish_event(order["user_id"], "order_status", event_data)
+        # Notify assigned delivery agent
+        if order.get("delivery_agent_id"):
+            publish_event(order["delivery_agent_id"], "order_status", event_data)
+    except Exception:
+        pass
+
+
+# ============= AUTO-ASSIGN DELIVERY AGENT =============
+async def auto_assign_delivery_agent(order):
+    """
+    Automatically assign the nearest available delivery agent based on pincode proximity.
+    Agents store a base_pincode in user_profiles. The order has delivery_info.pincode.
+    If exact match found, assign that agent. Otherwise pick agent with fewest active orders.
+    """
+    order_pincode = order.get("delivery_info", {}).get("pincode", "")
+    if not order_pincode:
+        logger.info(f"Auto-assign skipped: no delivery pincode for order {order['order_id']}")
+        return None
+
+    # Get all delivery agents
+    agents = await db.users.find({"role": "delivery_agent"}, {"_id": 0}).to_list(100)
+    if not agents:
+        logger.info(f"Auto-assign skipped: no delivery agents available")
+        return None
+
+    # Get their profiles (base_pincode) and active order counts
+    scored_agents = []
+    for agent in agents:
+        profile = await db.user_profiles.find_one({"user_id": agent["user_id"]}, {"_id": 0})
+        base_pincode = (profile or {}).get("base_pincode", "")
+        active_count = await db.orders.count_documents({
+            "delivery_agent_id": agent["user_id"],
+            "order_status": {"$in": ["confirmed", "preparing", "on_the_way", "reached_doorstep"]}
+        })
+        # Score: exact pincode match = 0 distance, prefix match = partial, else high
+        if base_pincode and order_pincode:
+            # Simple prefix-based proximity (first 3 digits = same area)
+            common = 0
+            for a, b in zip(str(base_pincode), str(order_pincode)):
+                if a == b:
+                    common += 1
+                else:
+                    break
+            distance_score = 6 - common  # 0 = perfect match, 6 = no match
+        else:
+            distance_score = 10  # no pincode set
+        scored_agents.append({
+            "agent": agent,
+            "distance_score": distance_score,
+            "active_orders": active_count
+        })
+
+    # Sort by distance first, then by fewest active orders
+    scored_agents.sort(key=lambda x: (x["distance_score"], x["active_orders"]))
+    best = scored_agents[0]
+
+    # Assign
+    agent = best["agent"]
+    await db.orders.update_one(
+        {"order_id": order["order_id"]},
+        {"$set": {"delivery_agent_id": agent["user_id"], "updated_at": datetime.now(timezone.utc)}}
+    )
+    # Notify the agent
+    await create_notification(
+        agent["user_id"],
+        "New delivery assigned",
+        f"Order #{order['order_id']} has been auto-assigned to you",
+        order["order_id"],
+        "delivery_assignment"
+    )
+    logger.info(f"Auto-assigned order {order['order_id']} to agent {agent['name']} (distance_score={best['distance_score']}, active={best['active_orders']})")
+    return agent
+
+# ============= EMAIL HELPER =============
+def _build_order_email_html(order):
+    """Build the order confirmation email HTML template."""
     items_html = ""
     for item in order.get("items", []):
         items_html += f"""
@@ -94,7 +187,7 @@ async def send_order_email(to_email, order):
         </tr>"""
 
     delivery = order.get("delivery_info", {})
-    html = f"""
+    return f"""
     <div style="max-width:600px;margin:0 auto;background:#FAF8F5;padding:0">
         <div style="background:#2C2420;padding:32px;text-align:center">
             <h1 style="font-family:Georgia,serif;font-size:28px;color:#FAF8F5;margin:0;font-style:italic">Whisked Words</h1>
@@ -142,16 +235,12 @@ async def send_order_email(to_email, order):
         </div>
     </div>"""
 
-    try:
-        await asyncio.to_thread(resend.Emails.send, {
-            "from": sender,
-            "to": [to_email],
-            "subject": f"Order Confirmed - #{order['order_id']} | Whisked Words",
-            "html": html
-        })
-        logger.info(f"Email sent: order {order['order_id']} to {to_email}")
-    except Exception as e:
-        logger.error(f"Email failed: {e}")
+
+async def send_order_email(to_email, order):
+    """Send order confirmation email via plug-and-play email service."""
+    html = _build_order_email_html(order)
+    subject = f"Order Confirmed - #{order['order_id']} | Whisked Words"
+    await send_email(to_email, subject, html)
 
 # ============= ADMIN: ORDER MANAGEMENT =============
 @router.get("/orders")
@@ -230,6 +319,12 @@ async def admin_update_order_status(order_id: str, request: Request):
         email = order.get("delivery_info", {}).get("email")
         if email:
             asyncio.create_task(send_order_email(email, order))
+        # Auto-assign delivery agent if none assigned
+        if not order.get("delivery_agent_id"):
+            asyncio.create_task(auto_assign_delivery_agent(order))
+
+    # Push real-time SSE event
+    _publish_order_event(order, new_status)
 
     return {"message": f"Order status updated to {new_status}"}
 
@@ -274,11 +369,17 @@ async def list_delivery_agents(request: Request, business_id: str = "whisked_wor
     """Admin: list all delivery agents"""
     await require_admin_or_super(request)
     agents = await db.users.find({"role": "delivery_agent"}, {"_id": 0}).to_list(100)
-    # Add phone from user profile
+    # Add phone and base_pincode from user profile
     for agent in agents:
         profile = await db.user_profiles.find_one({"user_id": agent["user_id"]}, {"_id": 0})
         if profile:
             agent["phone"] = profile.get("phone", "")
+            agent["base_pincode"] = profile.get("base_pincode", "")
+        # Count active deliveries
+        agent["active_orders"] = await db.orders.count_documents({
+            "delivery_agent_id": agent["user_id"],
+            "order_status": {"$in": ["confirmed", "preparing", "on_the_way", "reached_doorstep"]}
+        })
     return {"agents": agents, "total": len(agents)}
 
 @router.put("/users/{user_id}/make-delivery-agent")
@@ -287,6 +388,7 @@ async def make_delivery_agent(user_id: str, request: Request):
     admin = await require_admin_or_super(request)
     body = await request.json()
     phone = body.get("phone", "")
+    base_pincode = body.get("base_pincode", "")
 
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
@@ -309,13 +411,17 @@ async def make_delivery_agent(user_id: str, request: Request):
         }
     )
 
-    # Store phone
+    # Store phone and base_pincode
+    profile_update = {"updated_at": datetime.now(timezone.utc).isoformat()}
     if phone:
-        await db.user_profiles.update_one(
-            {"user_id": user_id},
-            {"$set": {"phone": phone, "updated_at": datetime.now(timezone.utc).isoformat()}},
-            upsert=True
-        )
+        profile_update["phone"] = phone
+    if base_pincode:
+        profile_update["base_pincode"] = base_pincode
+    await db.user_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": profile_update},
+        upsert=True
+    )
 
     return {"message": f"User {user['name']} is now a delivery agent"}
 
@@ -381,6 +487,9 @@ async def delivery_update_status(order_id: str, request: Request):
         if new_status == "not_delivered":
             msg += f". Reason: {reason}" + (f" - {custom_reason}" if custom_reason else "")
         await create_notification(order["user_id"], f"Order {new_status.replace('_', ' ')}", msg, order_id)
+
+    # Push real-time SSE event
+    _publish_order_event(order, new_status)
 
     return {"message": f"Order status updated to {new_status}"}
 

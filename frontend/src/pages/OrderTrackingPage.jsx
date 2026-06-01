@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import BakeryNavbar from '../components/common/BakeryNavbar';
 import BakeryFooter from '../components/common/BakeryFooter';
-import apiClient from '../utils/api';
+import apiClient, { API_URL } from '../utils/api';
 import { Package, CheckCircle, Circle, AlertCircle, Truck, ArrowLeft, Phone } from 'lucide-react';
 
 const statusIcons = {
@@ -18,17 +18,38 @@ const OrderTrackingPage = () => {
   const { isAuthenticated } = useAuth();
   const [trackingData, setTrackingData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const sseRef = useRef(null);
+
+  const fetchTracking = useCallback(async () => {
+    try {
+      const res = await apiClient.get(`/order-management/track/${orderId}`);
+      setTrackingData(res.data);
+    } catch (error) { console.error(error); }
+    finally { setLoading(false); }
+  }, [orderId]);
 
   useEffect(() => {
-    const fetchTracking = async () => {
-      try {
-        const res = await apiClient.get(`/order-management/track/${orderId}`);
-        setTrackingData(res.data);
-      } catch (error) { console.error(error); }
-      finally { setLoading(false); }
-    };
     if (orderId) fetchTracking();
-  }, [orderId]);
+  }, [orderId, fetchTracking]);
+
+  // SSE: auto-refresh tracking when order status changes
+  useEffect(() => {
+    if (!isAuthenticated || !orderId) return;
+    const sseUrl = `${API_URL.replace('/api', '')}/api/sse/events?token=${document.cookie.replace(/(?:(?:^|.*;\s*)session_token\s*=\s*([^;]*).*$)|^.*$/, '$1')}`;
+    try {
+      const es = new EventSource(sseUrl, { withCredentials: true });
+      sseRef.current = es;
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'order_status' && data.data?.order_id === orderId) {
+            fetchTracking();
+          }
+        } catch {}
+      };
+    } catch {}
+    return () => { if (sseRef.current) { sseRef.current.close(); sseRef.current = null; } };
+  }, [isAuthenticated, orderId, fetchTracking]);
 
   if (loading) {
     return (<div className="min-h-screen flex flex-col bg-[#FAF8F5]"><BakeryNavbar /><div className="flex-1 flex items-center justify-center"><div className="w-12 h-12 border-4 border-[#4A3B32] border-t-transparent rounded-full animate-spin" /></div></div>);

@@ -37,6 +37,7 @@ const AdminOrdersDashboard = () => {
   const [assigningOrder, setAssigningOrder] = useState(null);
   const [newAgentEmail, setNewAgentEmail] = useState('');
   const [newAgentPhone, setNewAgentPhone] = useState('');
+  const [newAgentPincode, setNewAgentPincode] = useState('');
 
   const fetchData = useCallback(async () => {
     try {
@@ -78,9 +79,9 @@ const AdminOrdersDashboard = () => {
       const users = await apiClient.get(`/users/search?email=${encodeURIComponent(newAgentEmail)}`);
       if (!users.data.users?.length) { toast.error('User not found. They must sign in first.'); return; }
       const userId = users.data.users[0].user_id;
-      await apiClient.put(`/order-management/users/${userId}/make-delivery-agent`, { phone: newAgentPhone });
+      await apiClient.put(`/order-management/users/${userId}/make-delivery-agent`, { phone: newAgentPhone, base_pincode: newAgentPincode });
       toast.success('User promoted to delivery agent');
-      setNewAgentEmail(''); setNewAgentPhone(''); setShowAgentModal(false);
+      setNewAgentEmail(''); setNewAgentPhone(''); setNewAgentPincode(''); setShowAgentModal(false);
       fetchData();
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed to assign role'); }
   };
@@ -148,10 +149,12 @@ const AdminOrdersDashboard = () => {
               <p className="text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-3">Delivery Agents ({agents.length})</p>
               <div className="flex flex-wrap gap-3">
                 {agents.map(a => (
-                  <div key={a.user_id} className="flex items-center gap-2 px-3 py-2 bg-[#FAF8F5] text-sm">
+                  <div key={a.user_id} className="flex items-center gap-2 px-3 py-2 bg-[#FAF8F5] text-sm" data-testid={`agent-card-${a.user_id}`}>
                     <Truck size={14} className="text-[#D4A373]" />
                     <span className="font-medium text-[#2C2420]">{a.name}</span>
                     {a.phone && <span className="text-xs text-[#786A60]">{a.phone}</span>}
+                    {a.base_pincode && <span className="text-xs text-[#D4A373]">PIN: {a.base_pincode}</span>}
+                    <span className="text-xs text-[#786A60]">{a.active_orders || 0} active</span>
                   </div>
                 ))}
               </div>
@@ -266,6 +269,7 @@ const AdminOrdersDashboard = () => {
               <div className="p-6 space-y-4">
                 <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">User Email *</label><input type="email" value={newAgentEmail} onChange={(e) => setNewAgentEmail(e.target.value)} placeholder="agent@gmail.com" className={inputClass} data-testid="agent-email-input" /></div>
                 <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Phone Number</label><input type="tel" value={newAgentPhone} onChange={(e) => setNewAgentPhone(e.target.value)} placeholder="+91-XXXXXXXXXX" className={inputClass} data-testid="agent-phone-input" /></div>
+                <div><label className="block text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Base Pincode (for auto-assignment)</label><input type="text" value={newAgentPincode} onChange={(e) => setNewAgentPincode(e.target.value)} placeholder="400001" maxLength={6} className={inputClass} data-testid="agent-pincode-input" /></div>
               </div>
               <div className="p-6 border-t border-[#E8E0D5] flex gap-3">
                 <button onClick={makeDeliveryAgent} className="bg-[#4A3B32] text-white px-6 py-3 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors" data-testid="confirm-add-agent">Add Agent</button>

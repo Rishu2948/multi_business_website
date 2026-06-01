@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
-import apiClient from '../../utils/api';
+import apiClient, { API_URL } from '../../utils/api';
 import { LogOut, User, ShoppingCart, Award, RefreshCw, Package, Bell, Truck } from 'lucide-react';
 
 const BakeryNavbar = () => {
@@ -14,6 +14,7 @@ const BakeryNavbar = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
   const notifRef = useRef(null);
+  const sseRef = useRef(null);
 
   const fetchNotifications = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -24,7 +25,34 @@ const BakeryNavbar = () => {
     } catch {}
   }, [isAuthenticated]);
 
-  useEffect(() => { fetchNotifications(); const id = setInterval(fetchNotifications, 30000); return () => clearInterval(id); }, [fetchNotifications]);
+  // SSE: real-time updates, fallback to 30s polling
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    fetchNotifications();
+
+    // Try SSE connection
+    const sseUrl = `${API_URL.replace('/api', '')}/api/sse/events?token=${document.cookie.replace(/(?:(?:^|.*;\s*)session_token\s*=\s*([^;]*).*$)|^.*$/, '$1')}`;
+    try {
+      const es = new EventSource(sseUrl, { withCredentials: true });
+      sseRef.current = es;
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'notification' || data.type === 'order_status') {
+            fetchNotifications();
+          }
+        } catch {}
+      };
+      es.onerror = () => { /* SSE failed, polling fallback handles it */ };
+    } catch {}
+
+    // Fallback polling (longer interval since SSE handles real-time)
+    const id = setInterval(fetchNotifications, 60000);
+    return () => {
+      clearInterval(id);
+      if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+    };
+  }, [isAuthenticated, fetchNotifications]);
 
   useEffect(() => {
     const handleClick = (e) => { if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false); };
