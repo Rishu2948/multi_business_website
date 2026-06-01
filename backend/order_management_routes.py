@@ -113,66 +113,71 @@ async def auto_assign_delivery_agent(order):
     """
     Automatically assign the nearest available delivery agent based on pincode proximity.
     Agents store a base_pincode in user_profiles. The order has delivery_info.pincode.
-    If exact match found, assign that agent. Otherwise pick agent with fewest active orders.
+    Uses prefix-based proximity (6-digit pincode comparison — same district matching).
+    Ties broken by fewest active orders.
     """
-    order_pincode = order.get("delivery_info", {}).get("pincode", "")
-    if not order_pincode:
-        logger.info(f"Auto-assign skipped: no delivery pincode for order {order['order_id']}")
+    try:
+        order_pincode = order.get("delivery_info", {}).get("pincode", "")
+        if not order_pincode:
+            logger.info(f"Auto-assign skipped: no delivery pincode for order {order['order_id']}")
+            return None
+
+        # Get all delivery agents
+        agents = await db.users.find({"role": "delivery_agent"}, {"_id": 0}).to_list(100)
+        if not agents:
+            logger.info(f"Auto-assign skipped: no delivery agents available")
+            return None
+
+        # Get their profiles (base_pincode) and active order counts
+        scored_agents = []
+        for agent in agents:
+            profile = await db.user_profiles.find_one({"user_id": agent["user_id"]}, {"_id": 0})
+            base_pincode = (profile or {}).get("base_pincode", "")
+            active_count = await db.orders.count_documents({
+                "delivery_agent_id": agent["user_id"],
+                "order_status": {"$in": ["confirmed", "preparing", "on_the_way", "reached_doorstep"]}
+            })
+            # Score: exact pincode match = 0 distance, prefix match = partial, else high
+            if base_pincode and order_pincode:
+                # Simple prefix-based proximity (first 3 digits = same area)
+                common = 0
+                for a, b in zip(str(base_pincode), str(order_pincode)):
+                    if a == b:
+                        common += 1
+                    else:
+                        break
+                distance_score = 6 - common  # 0 = perfect match, 6 = no match
+            else:
+                distance_score = 10  # no pincode set
+            scored_agents.append({
+                "agent": agent,
+                "distance_score": distance_score,
+                "active_orders": active_count
+            })
+
+        # Sort by distance first, then by fewest active orders
+        scored_agents.sort(key=lambda x: (x["distance_score"], x["active_orders"]))
+        best = scored_agents[0]
+
+        # Assign
+        agent = best["agent"]
+        await db.orders.update_one(
+            {"order_id": order["order_id"]},
+            {"$set": {"delivery_agent_id": agent["user_id"], "updated_at": datetime.now(timezone.utc)}}
+        )
+        # Notify the agent
+        await create_notification(
+            agent["user_id"],
+            "New delivery assigned",
+            f"Order #{order['order_id']} has been auto-assigned to you",
+            order["order_id"],
+            "delivery_assignment"
+        )
+        logger.info(f"Auto-assigned order {order['order_id']} to agent {agent['name']} (distance_score={best['distance_score']}, active={best['active_orders']})")
+        return agent
+    except Exception as e:
+        logger.exception(f"Auto-assign failed for order {order.get('order_id', '?')}: {e}")
         return None
-
-    # Get all delivery agents
-    agents = await db.users.find({"role": "delivery_agent"}, {"_id": 0}).to_list(100)
-    if not agents:
-        logger.info(f"Auto-assign skipped: no delivery agents available")
-        return None
-
-    # Get their profiles (base_pincode) and active order counts
-    scored_agents = []
-    for agent in agents:
-        profile = await db.user_profiles.find_one({"user_id": agent["user_id"]}, {"_id": 0})
-        base_pincode = (profile or {}).get("base_pincode", "")
-        active_count = await db.orders.count_documents({
-            "delivery_agent_id": agent["user_id"],
-            "order_status": {"$in": ["confirmed", "preparing", "on_the_way", "reached_doorstep"]}
-        })
-        # Score: exact pincode match = 0 distance, prefix match = partial, else high
-        if base_pincode and order_pincode:
-            # Simple prefix-based proximity (first 3 digits = same area)
-            common = 0
-            for a, b in zip(str(base_pincode), str(order_pincode)):
-                if a == b:
-                    common += 1
-                else:
-                    break
-            distance_score = 6 - common  # 0 = perfect match, 6 = no match
-        else:
-            distance_score = 10  # no pincode set
-        scored_agents.append({
-            "agent": agent,
-            "distance_score": distance_score,
-            "active_orders": active_count
-        })
-
-    # Sort by distance first, then by fewest active orders
-    scored_agents.sort(key=lambda x: (x["distance_score"], x["active_orders"]))
-    best = scored_agents[0]
-
-    # Assign
-    agent = best["agent"]
-    await db.orders.update_one(
-        {"order_id": order["order_id"]},
-        {"$set": {"delivery_agent_id": agent["user_id"], "updated_at": datetime.now(timezone.utc)}}
-    )
-    # Notify the agent
-    await create_notification(
-        agent["user_id"],
-        "New delivery assigned",
-        f"Order #{order['order_id']} has been auto-assigned to you",
-        order["order_id"],
-        "delivery_assignment"
-    )
-    logger.info(f"Auto-assigned order {order['order_id']} to agent {agent['name']} (distance_score={best['distance_score']}, active={best['active_orders']})")
-    return agent
 
 # ============= EMAIL HELPER =============
 def _build_order_email_html(order):
