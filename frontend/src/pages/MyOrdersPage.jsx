@@ -9,20 +9,23 @@ import { Package, ChevronRight } from 'lucide-react';
 
 const statusStyles = {
   pending: 'bg-[#D4A373]/20 text-[#A67C52]',
-  confirmed: 'bg-[#A3B18A]/20 text-[#5A7247]',
-  processing: 'bg-blue-50 text-blue-600',
-  shipped: 'bg-violet-50 text-violet-600',
+  confirmed: 'bg-blue-50 text-blue-600',
+  preparing: 'bg-violet-50 text-violet-600',
+  on_the_way: 'bg-indigo-50 text-indigo-600',
+  reached_doorstep: 'bg-teal-50 text-teal-600',
   delivered: 'bg-[#A3B18A]/20 text-[#5A7247]',
-  cancelled: 'bg-red-50 text-red-600'
+  cancelled: 'bg-red-50 text-red-600',
+  not_delivered: 'bg-red-50 text-red-600'
 };
 
 const MyOrdersPage = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!isAuthenticated) { navigate('/login'); return; }
     const fetchOrders = async () => {
       try {
@@ -32,7 +35,7 @@ const MyOrdersPage = () => {
       finally { setLoading(false); }
     };
     fetchOrders();
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, authLoading, navigate]);
 
   if (loading) {
     return (<div className="min-h-screen flex flex-col bg-[#FAF8F5]"><BakeryNavbar /><div className="flex-1 flex items-center justify-center"><div className="w-12 h-12 border-4 border-[#4A3B32] border-t-transparent rounded-full animate-spin" /></div></div>);
@@ -76,7 +79,7 @@ const MyOrdersPage = () => {
                         </p>
                       </div>
                       <span className={`text-xs px-3 py-1 font-semibold ${statusStyles[order.order_status] || 'bg-gray-100 text-gray-700'}`}>
-                        {order.order_status?.toUpperCase()}
+                        {order.order_status?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                       </span>
                     </div>
 

@@ -137,9 +137,11 @@ const DeliveryDashboard = () => {
                               <action.icon size={14} /> {action.label}
                             </button>
                           )}
-                          <button onClick={() => setUpdatingOrder(updatingOrder === order.order_id ? null : order.order_id)} className="px-5 py-3 text-xs tracking-[0.1em] uppercase font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors flex items-center gap-2" data-testid={`not-delivered-btn-${order.order_id}`}>
-                            <XCircle size={14} /> Not Delivered
-                          </button>
+                          {['on_the_way', 'reached_doorstep'].includes(order.order_status) && (
+                            <button onClick={() => setUpdatingOrder(updatingOrder === order.order_id ? null : order.order_id)} className="px-5 py-3 text-xs tracking-[0.1em] uppercase font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors flex items-center gap-2" data-testid={`not-delivered-btn-${order.order_id}`}>
+                              <XCircle size={14} /> Not Delivered
+                            </button>
+                          )}
                         </div>
                       )}
 
