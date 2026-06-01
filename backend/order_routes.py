@@ -80,6 +80,7 @@ async def create_order(order_data: OrderCreate, request: Request):
         "payment_status": "pending",
         "payment_id": None,
         "order_status": "pending",
+        "status_history": [{"status": "pending", "timestamp": datetime.now(timezone.utc).isoformat(), "updated_by": "system", "role": "system"}],
         "subtotal": order_data.subtotal,
         "tax": order_data.tax,
         "delivery_charge": order_data.delivery_charge,
@@ -126,6 +127,25 @@ async def create_order(order_data: OrderCreate, request: Request):
         session_id = request.cookies.get("guest_session_id")
         if session_id:
             await db.carts.delete_one({"session_id": session_id})
+    
+    # Send email for COD orders + create notification
+    if order["payment_method"] == "cod":
+        email = order["delivery_info"].get("email")
+        if email:
+            from order_management_routes import send_order_email
+            import asyncio
+            asyncio.create_task(send_order_email(email, order))
+    
+    if user:
+        from order_management_routes import create_notification
+        import asyncio
+        asyncio.create_task(create_notification(
+            user["user_id"],
+            "Order placed successfully",
+            f"Your order #{order_id} has been placed. Total: ₹{order['total']}",
+            order_id,
+            "order_placed"
+        ))
     
     return {"order_id": order_id, "message": "Order created successfully"}
 

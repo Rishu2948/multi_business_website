@@ -24,6 +24,9 @@ import SubscriptionsPage from './pages/SubscriptionsPage';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import BusinessAdminDashboard from './pages/BusinessAdminDashboard';
 import StaffDashboard from './pages/StaffDashboard';
+import AdminOrdersDashboard from './pages/AdminOrdersDashboard';
+import DeliveryDashboard from './pages/DeliveryDashboard';
+import OrderTrackingPage from './pages/OrderTrackingPage';
 
 function AppRouter() {
   const location = useLocation();
@@ -59,6 +62,29 @@ function AppRouter() {
       <Route path="/loyalty" element={<LoyaltyPage />} />
       <Route path="/subscriptions" element={<SubscriptionsPage />} />
       <Route path="/business/:businessId/custom-order" element={<CustomCakeOrderPage />} />
+      
+      {/* Order Tracking */}
+      <Route path="/track/:orderId" element={<OrderTrackingPage />} />
+      
+      {/* Admin Order Management */}
+      <Route
+        path="/admin/orders"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <AdminOrdersDashboard />
+          </ProtectedRoute>
+        }
+      />
+      
+      {/* Delivery Agent Dashboard */}
+      <Route
+        path="/delivery"
+        element={
+          <ProtectedRoute allowedRoles={['delivery_agent']}>
+            <DeliveryDashboard />
+          </ProtectedRoute>
+        }
+      />
       
       {/* Protected Routes - Super Admin */}
       <Route

@@ -95,8 +95,8 @@ const MyOrdersPage = () => {
                         <span className="text-[#786A60]">Payment: <span className="font-medium text-[#2C2420] uppercase">{order.payment_method}</span></span>
                         <span className="text-[#786A60]">Total: <span className="font-serif font-medium text-[#2C2420]">₹{order.total?.toLocaleString()}</span></span>
                       </div>
-                      <Link to={`/order-success?orderId=${order.order_id}&method=${order.payment_method}`} className="text-xs text-[#D4A373] hover:text-[#4A3B32] font-semibold flex items-center gap-1 transition-colors">
-                        Details <ChevronRight size={14} />
+                      <Link to={`/track/${order.order_id}`} className="text-xs text-[#D4A373] hover:text-[#4A3B32] font-semibold flex items-center gap-1 transition-colors">
+                        Track <ChevronRight size={14} />
                       </Link>
                     </div>
                   </div>

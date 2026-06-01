@@ -759,6 +759,20 @@ async def list_users(
     
     return {"users": users, "total": len(users)}
 
+@api_router.get("/users/search")
+async def search_users(
+    email: str = None,
+    current_user: dict = Depends(require_role(["super_admin", "business_admin"]))
+):
+    """Search users by email"""
+    if not email:
+        raise HTTPException(status_code=400, detail="email query required")
+    users = await db.users.find(
+        {"email": {"$regex": email, "$options": "i"}},
+        {"_id": 0}
+    ).to_list(10)
+    return {"users": users, "total": len(users)}
+
 @api_router.post("/users/{user_id}/role")
 async def assign_role(
     user_id: str,
@@ -777,12 +791,12 @@ async def assign_role(
     if not business_id or not role:
         raise HTTPException(status_code=400, detail="business_id and role required")
     
-    # Business admin can only assign staff role in their business
+    # Business admin can only assign staff or delivery_agent role in their business
     if current_user["role"] == "business_admin":
         if not await check_business_access(current_user, business_id):
             raise HTTPException(status_code=403, detail="Access denied")
-        if role not in ["staff"]:
-            raise HTTPException(status_code=403, detail="Can only assign staff role")
+        if role not in ["staff", "delivery_agent"]:
+            raise HTTPException(status_code=403, detail="Can only assign staff or delivery_agent role")
     
     # Check if already has access to this business
     existing_access = None
@@ -892,6 +906,8 @@ ecommerce_routes.set_db(db)
 payment_routes.set_db(db)
 order_routes.set_db(db)
 custom_order_routes.set_db(db)
+import order_management_routes
+order_management_routes.set_db(db)
 additional_routes.set_db(db)
 
 # Include routers
@@ -902,6 +918,7 @@ app.include_router(custom_order_routes.router)
 app.include_router(additional_routes.reviews_router)
 app.include_router(additional_routes.loyalty_router)
 app.include_router(additional_routes.subscriptions_router)
+app.include_router(order_management_routes.router)
 
 app.add_middleware(
     CORSMiddleware,
