@@ -42,6 +42,17 @@ Requires React frontend + FastAPI backend + MongoDB. Needs Super Admin, Business
 - Order success page with payment status polling
 - My Orders page with order status tracking
 
+### UI/Design
+- **Bakery Theme**: Whisked Words pages redesigned with classy artisan bakery aesthetic
+  - Playfair Display serif font for headings, Manrope sans for body
+  - Color palette: Warm Beige `#FAF8F5`, Espresso `#4A3B32`, Caramel `#D4A373`, Sage `#A3B18A`
+  - Custom BakeryNavbar (centered serif logo) and BakeryFooter (dark espresso)
+  - Hero section with full-bleed bakery photography and gradient overlay
+  - Scrolling marquee text bar
+  - Framer Motion entrance animations
+  - Editorial product card layout (4:5 aspect ratio)
+- Non-bakery pages (Landing, Login, Businesses, Dashboards) retain original Jain Industries theme
+
 ### Product Discovery
 - **Trending Now**: Auto-ranked by order count + reviews with rank badges
 - **Recently Viewed**: localStorage tracking + server-side DB for cross-device, shown on catalog
@@ -106,4 +117,5 @@ Requires React frontend + FastAPI backend + MongoDB. Needs Super Admin, Business
 - Iteration 1: Backend 96.5% (28/29), Frontend 100% — order variant_id fix applied
 - Iteration 2: Trending feature — Backend 100% (7/7), Frontend 100%
 - Iteration 3: Recently Viewed + Recommended — Backend 100% (11/11), Frontend 100%
+- Iteration 4: Bakery UI Redesign — Backend 100%, Frontend 95% (cart badge timing fix applied)
 - Test reports: /app/test_reports/iteration_1.json, iteration_2.json, iteration_3.json

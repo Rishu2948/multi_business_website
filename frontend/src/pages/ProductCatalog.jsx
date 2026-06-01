@@ -172,7 +172,7 @@ const ProductCatalog = () => {
       {/* Hero */}
       <section className="relative h-[50vh] min-h-[400px] overflow-hidden" data-testid="catalog-header">
         <img
-          src="https://static.prod-images.emergentagent.com/jobs/a640ac3b-0600-4eca-a0b3-c7b9e3903f25/images/12bffb18451a5e0478fe39e930d05bc35c09b0e16b8b78bfd0c7f89ab1f18fa8.png"
+          src="https://images.unsplash.com/photo-1774758951271-e0886de596f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MDZ8MHwxfHNlYXJjaHwxfHxhcnRpc2FuJTIwYmFrZXJ5JTIwcGFzdHJpZXMlMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzc3NjE4NjEyfDA&ixlib=rb-4.1.0&q=85"
           alt="Whisked Words Bakery"
           className="absolute inset-0 w-full h-full object-cover"
           aria-hidden="true"

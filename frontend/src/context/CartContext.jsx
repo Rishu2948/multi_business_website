@@ -26,6 +26,8 @@ export const CartProvider = ({ children }) => {
 
   const addToCart = async (productId, variantId = null, quantity = 1) => {
     setLoading(true);
+    // Optimistic count update
+    setCartCount(prev => prev + quantity);
     try {
       await apiClient.post('/ecommerce/cart/add', {
         product_id: productId,
@@ -37,6 +39,8 @@ export const CartProvider = ({ children }) => {
       return true;
     } catch (error) {
       console.error('Error adding to cart:', error);
+      // Revert optimistic update
+      setCartCount(prev => Math.max(0, prev - quantity));
       toast.error('Failed to add item to cart');
       return false;
     } finally {

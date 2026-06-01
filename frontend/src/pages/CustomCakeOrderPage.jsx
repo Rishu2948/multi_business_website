@@ -62,7 +62,7 @@ const CustomCakeOrderPage = () => {
               <div className="sticky top-28">
                 <div className="aspect-[3/4] overflow-hidden mb-6">
                   <img
-                    src="https://static.prod-images.emergentagent.com/jobs/a640ac3b-0600-4eca-a0b3-c7b9e3903f25/images/ff2d564e3a4ef380991ac5aa321abae22f134886559801737a79c2a54b474bb4.png"
+                    src="https://images.unsplash.com/photo-1693059740560-21151639561f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwzfHxjdXN0b20lMjBiaXJ0aGRheSUyMGNha2UlMjBiYWtlcnl8ZW58MHx8fHwxNzc3NjE4NjE3fDA&ixlib=rb-4.1.0&q=85"
                     alt="Custom Cake Showcase"
                     className="w-full h-full object-cover"
                   />

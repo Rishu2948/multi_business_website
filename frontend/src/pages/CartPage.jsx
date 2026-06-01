@@ -73,11 +73,11 @@ const CartPage = () => {
                     {/* Quantity */}
                     <div className="md:col-span-2 flex items-center justify-center">
                       <div className="flex items-center border border-[#E8E0D5]">
-                        <button onClick={() => updateQuantity(item.product_id, Math.max(1, item.quantity - 1))} disabled={loading} className="px-3 py-2 text-[#4A3B32] hover:bg-[#F3EFEA] transition-colors" data-testid={`decrease-qty-${item.product_id}`}>
+                        <button onClick={() => updateQuantity(item.product_id, null, Math.max(1, item.quantity - 1))} disabled={loading} className="px-3 py-2 text-[#4A3B32] hover:bg-[#F3EFEA] transition-colors" data-testid={`decrease-qty-${item.product_id}`}>
                           <Minus size={14} />
                         </button>
                         <span className="px-4 py-2 text-sm font-semibold text-[#2C2420] min-w-[40px] text-center" data-testid={`qty-${item.product_id}`}>{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.product_id, item.quantity + 1)} disabled={loading} className="px-3 py-2 text-[#4A3B32] hover:bg-[#F3EFEA] transition-colors" data-testid={`increase-qty-${item.product_id}`}>
+                        <button onClick={() => updateQuantity(item.product_id, null, item.quantity + 1)} disabled={loading} className="px-3 py-2 text-[#4A3B32] hover:bg-[#F3EFEA] transition-colors" data-testid={`increase-qty-${item.product_id}`}>
                           <Plus size={14} />
                         </button>
                       </div>
