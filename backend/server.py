@@ -922,6 +922,7 @@ app.include_router(additional_routes.loyalty_router)
 app.include_router(additional_routes.subscriptions_router)
 app.include_router(order_management_routes.router)
 app.include_router(sse_routes.router)
+app.include_router(location_routes.router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -941,3 +942,4 @@ logger = logging.getLogger(__name__)
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+lose()

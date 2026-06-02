@@ -38,6 +38,8 @@ class DeliveryInfo(BaseModel):
     city: str
     state: str
     pincode: str
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     delivery_date: Optional[str] = None
     delivery_time: Optional[str] = None
     special_instructions: Optional[str] = None

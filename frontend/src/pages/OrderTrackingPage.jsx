@@ -4,8 +4,9 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import BakeryNavbar from '../components/common/BakeryNavbar';
 import BakeryFooter from '../components/common/BakeryFooter';
+import LiveTrackingMap from '../components/common/LiveTrackingMap';
 import apiClient, { API_URL } from '../utils/api';
-import { Package, CheckCircle, Circle, AlertCircle, Truck, ArrowLeft, Phone } from 'lucide-react';
+import { Package, CheckCircle, Circle, AlertCircle, Truck, ArrowLeft, Phone, MapPin } from 'lucide-react';
 
 const statusIcons = {
   pending: Package, confirmed: CheckCircle, preparing: Package,
@@ -18,6 +19,8 @@ const OrderTrackingPage = () => {
   const { isAuthenticated } = useAuth();
   const [trackingData, setTrackingData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [agentLocation, setAgentLocation] = useState(null);
+  const [etaMinutes, setEtaMinutes] = useState(null);
   const sseRef = useRef(null);
 
   const fetchTracking = useCallback(async () => {
@@ -35,6 +38,18 @@ const OrderTrackingPage = () => {
   // SSE: auto-refresh tracking when order status changes
   useEffect(() => {
     if (!isAuthenticated || !orderId) return;
+
+    // Fetch agent location
+    const fetchAgentLocation = async () => {
+      try {
+        const res = await apiClient.get(`/locations/agent/${orderId}/location`);
+        if (res.data.location) setAgentLocation(res.data.location);
+        if (res.data.eta_minutes) setEtaMinutes(res.data.eta_minutes);
+      } catch {}
+    };
+    fetchAgentLocation();
+    const locInterval = setInterval(fetchAgentLocation, 15000);
+
     const sseUrl = `${API_URL.replace('/api', '')}/api/sse/events?token=${document.cookie.replace(/(?:(?:^|.*;\s*)session_token\s*=\s*([^;]*).*$)|^.*$/, '$1')}`;
     try {
       const es = new EventSource(sseUrl, { withCredentials: true });
@@ -45,10 +60,17 @@ const OrderTrackingPage = () => {
           if (data.type === 'order_status' && data.data?.order_id === orderId) {
             fetchTracking();
           }
+          if (data.type === 'agent_location' && data.data?.order_id === orderId) {
+            setAgentLocation({ lat: data.data.lat, lng: data.data.lng });
+            if (data.data.eta_minutes) setEtaMinutes(data.data.eta_minutes);
+          }
         } catch {}
       };
     } catch {}
-    return () => { if (sseRef.current) { sseRef.current.close(); sseRef.current = null; } };
+    return () => {
+      clearInterval(locInterval);
+      if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+    };
   }, [isAuthenticated, orderId, fetchTracking]);
 
   if (loading) {
