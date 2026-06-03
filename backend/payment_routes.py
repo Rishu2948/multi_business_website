@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Request
 from datetime import datetime, timezone
 import uuid
 import os
-from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 
 router = APIRouter(prefix="/api/payments")
 
@@ -57,33 +56,10 @@ async def create_checkout_session(request: Request):
         if not stripe_api_key:
             raise HTTPException(status_code=500, detail="Stripe API key not configured")
         
-        webhook_url = f"{origin_url}/api/webhook/stripe"
-        stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
-        
-        # Create checkout session
-        success_url = f"{origin_url}/order-success?session_id={{{{CHECKOUT_SESSION_ID}}}}"
-        cancel_url = f"{origin_url}/checkout"
-        
-        checkout_request = CheckoutSessionRequest(
-            amount=float(order["total"]),
-            currency="inr",
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={
-                "order_id": order_id,
-                "transaction_id": transaction_id
-            }
+        raise HTTPException(
+            status_code=501,
+            detail="Stripe integration is not yet fully implemented. Please use the official stripe python package."
         )
-        
-        session = await stripe_checkout.create_checkout_session(checkout_request)
-        
-        # Update transaction with session ID
-        await db.payment_transactions.update_one(
-            {"transaction_id": transaction_id},
-            {"$set": {"session_id": session.session_id, "payment_status": "pending"}}
-        )
-        
-        return {"url": session.url, "session_id": session.session_id, "payment_method": "stripe"}
     
     elif payment_method == "razorpay":
         # Razorpay implementation
@@ -105,65 +81,10 @@ async def get_checkout_status(session_id: str):
         raise HTTPException(status_code=404, detail="Transaction not found")
     
     if transaction["payment_method"] == "stripe":
-        stripe_api_key = os.environ.get("STRIPE_API_KEY")
-        stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url="")
-        
-        status = await stripe_checkout.get_checkout_status(session_id)
-        
-        # Update transaction
-        if status.payment_status == "paid" and transaction["payment_status"] != "paid":
-            await db.payment_transactions.update_one(
-                {"transaction_id": transaction["transaction_id"]},
-                {"$set": {
-                    "payment_status": "paid",
-                    "updated_at": datetime.now(timezone.utc)
-                }}
-            )
-            
-            # Update order
-            await db.orders.update_one(
-                {"order_id": transaction["order_id"]},
-                {"$set": {
-                    "payment_status": "paid",
-                    "payment_id": session_id,
-                    "order_status": "confirmed",
-                    "updated_at": datetime.now(timezone.utc)
-                }}
-            )
-            
-            # Award loyalty points (10% of order value)
-            order = await db.orders.find_one({"order_id": transaction["order_id"]}, {"_id": 0})
-            if order and order.get("user_id"):
-                points_earned = int(order["total"] * 0.1)  # 10% as points
-                
-                # Update loyalty points
-                await db.loyalty_points.update_one(
-                    {"user_id": order["user_id"]},
-                    {
-                        "$inc": {"points": points_earned, "total_earned": points_earned},
-                        "$setOnInsert": {"user_id": order["user_id"], "tier": "bronze", "total_redeemed": 0}
-                    },
-                    upsert=True
-                )
-                
-                # Create points transaction
-                points_txn = {
-                    "transaction_id": f"pts_{uuid.uuid4().hex[:12]}",
-                    "user_id": order["user_id"],
-                    "points": points_earned,
-                    "type": "earned",
-                    "reason": f"Order #{order['order_id']}",
-                    "order_id": order["order_id"],
-                    "created_at": datetime.now(timezone.utc)
-                }
-                await db.points_transactions.insert_one(points_txn)
-        
-        return {
-            "status": status.status,
-            "payment_status": status.payment_status,
-            "amount": status.amount_total / 100,
-            "currency": status.currency
-        }
+        raise HTTPException(
+            status_code=501,
+            detail="Stripe integration is not yet fully implemented."
+        )
     
     return {"payment_status": transaction["payment_status"]}
 
@@ -173,31 +94,7 @@ async def stripe_webhook(request: Request):
     body = await request.body()
     signature = request.headers.get("stripe-signature")
     
-    stripe_api_key = os.environ.get("STRIPE_API_KEY")
-    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url="")
-    
-    try:
-        webhook_response = await stripe_checkout.handle_webhook(body, signature)
-        
-        # Handle webhook event
-        if webhook_response.event_type == "checkout.session.completed":
-            # Payment successful
-            await db.payment_transactions.update_one(
-                {"session_id": webhook_response.session_id},
-                {"$set": {"payment_status": "paid", "updated_at": datetime.now(timezone.utc)}}
-            )
-            
-            # Update order
-            transaction = await db.payment_transactions.find_one(
-                {"session_id": webhook_response.session_id},
-                {"_id": 0}
-            )
-            if transaction:
-                await db.orders.update_one(
-                    {"order_id": transaction["order_id"]},
-                    {"$set": {"payment_status": "paid", "order_status": "confirmed"}}
-                )
-        
-        return {"status": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    raise HTTPException(
+        status_code=501,
+        detail="Stripe integration is not yet fully implemented."
+    )

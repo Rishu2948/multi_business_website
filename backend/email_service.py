@@ -20,6 +20,7 @@ import os
 import logging
 import asyncio
 from abc import ABC, abstractmethod
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ PROVIDERS = {
 }
 
 
-def get_email_provider() -> BaseEmailProvider | None:
+def get_email_provider() -> Optional[BaseEmailProvider]:
     """Return configured provider or None if not configured."""
     provider_name = os.environ.get("EMAIL_PROVIDER", "").lower().strip()
     api_key = os.environ.get("EMAIL_API_KEY", "").strip()

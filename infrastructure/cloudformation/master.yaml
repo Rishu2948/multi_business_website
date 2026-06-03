@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Master stack - network, backend ECS, frontend CDN
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, prod]
+    Default: dev
+  ProjectName:
+    Type: String
+    Default: multi-business
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.0.2.0/24
+  BackendSecretArn:
+    Type: String
+    Description: ARN from aws secretsmanager describe-secret after running sync-secrets-to-aws.sh
+  AcmCertificateArn:
+    Type: String
+    Default: ''
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: network.yaml
+      Parameters:
+        Environment: !Ref Environment
+        VpcCidr: !Ref VpcCidr
+        PublicSubnet1Cidr: !Ref PublicSubnet1Cidr
+        PublicSubnet2Cidr: !Ref PublicSubnet2Cidr
+
+  FrontendStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: frontend-cdn.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  BackendStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: NetworkStack
+    Properties:
+      TemplateURL: backend-ecs.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PublicSubnet1Id: !GetAtt NetworkStack.Outputs.PublicSubnet1Id
+        PublicSubnet2Id: !GetAtt NetworkStack.Outputs.PublicSubnet2Id
+        AlbSecurityGroupId: !GetAtt NetworkStack.Outputs.AlbSecurityGroupId
+        EcsSecurityGroupId: !GetAtt NetworkStack.Outputs.EcsSecurityGroupId
+        BackendSecretArn: !Ref BackendSecretArn
+        AcmCertificateArn: !Ref AcmCertificateArn
+        DesiredCount: !Ref DesiredCount
+
+Outputs:
+  VpcId:
+    Value: !GetAtt NetworkStack.Outputs.VpcId
+  AlbDnsName:
+    Value: !GetAtt BackendStack.Outputs.AlbDnsName
+  AlbUrl:
+    Value: !GetAtt BackendStack.Outputs.AlbUrl
+  EcrRepositoryUri:
+    Value: !GetAtt BackendStack.Outputs.EcrRepositoryUri
+  EcsClusterName:
+    Value: !GetAtt BackendStack.Outputs.ClusterName
+  EcsServiceName:
+    Value: !GetAtt BackendStack.Outputs.ServiceName
+  FrontendBucketName:
+    Value: !GetAtt FrontendStack.Outputs.BucketName
+  CloudFrontDistributionId:
+    Value: !GetAtt FrontendStack.Outputs.DistributionId
+  CloudFrontDomainName:
+    Value: !GetAtt FrontendStack.Outputs.CloudFrontDomainName

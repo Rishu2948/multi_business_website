@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import Navbar from '../components/common/Navbar';
@@ -100,23 +101,33 @@ const BusinessAdminDashboard = () => {
               <p className="text-sm text-muted">Managing {selectedBusiness.business_name}</p>
             </div>
             
-            {businesses.length > 1 && (
-              <select
-                value={selectedBusiness.business_id}
-                onChange={(e) => {
-                  const business = businesses.find(b => b.business_id === e.target.value);
-                  setSelectedBusiness(business);
-                }}
-                className="border border-border bg-white px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none text-base text-primary"
-                data-testid="business-selector"
+            <div className="flex items-center gap-4">
+              <Link
+                to="/admin/orders"
+                className="bg-primary text-white px-4 py-3 font-bold text-sm tracking-wide border border-primary hover:bg-[#333333] transition-all flex items-center gap-2"
+                data-testid="manage-orders-button"
               >
-                {businesses.map((business) => (
-                  <option key={business.business_id} value={business.business_id}>
-                    {business.business_name}
-                  </option>
-                ))}
-              </select>
-            )}
+                <Package size={16} />
+                MANAGE ORDERS
+              </Link>
+              {businesses.length > 1 && (
+                <select
+                  value={selectedBusiness.business_id}
+                  onChange={(e) => {
+                    const business = businesses.find(b => b.business_id === e.target.value);
+                    setSelectedBusiness(business);
+                  }}
+                  className="border border-border bg-white px-4 py-3 focus:ring-2 focus:ring-accent focus:border-accent transition-all outline-none text-base text-primary"
+                  data-testid="business-selector"
+                >
+                  {businesses.map((business) => (
+                    <option key={business.business_id} value={business.business_id}>
+                      {business.business_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
           {/* Stats Grid */}

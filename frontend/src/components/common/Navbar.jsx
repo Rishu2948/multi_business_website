@@ -71,7 +71,7 @@ const Navbar = () => {
                 </Link>
               </>
             )}
-            
+
             {/* Cart Icon */}
             <Link
               to="/cart"
@@ -85,7 +85,7 @@ const Navbar = () => {
                 </span>
               )}
             </Link>
-            
+
             {isAuthenticated ? (
               <>
                 <Link
@@ -96,7 +96,7 @@ const Navbar = () => {
                   <LayoutDashboard size={18} />
                   DASHBOARD
                 </Link>
-                
+
                 <div className="flex items-center gap-4 pl-4 border-l border-border">
                   <div className="flex items-center gap-2" data-testid="nav-user-info">
                     {user?.picture ? (
@@ -108,7 +108,7 @@ const Navbar = () => {
                     )}
                     <span className="text-sm font-medium text-primary">{user?.name}</span>
                   </div>
-                  
+
                   <button
                     onClick={handleLogout}
                     className="flex items-center gap-2 text-sm font-medium text-primary hover:text-destructive transition-colors"

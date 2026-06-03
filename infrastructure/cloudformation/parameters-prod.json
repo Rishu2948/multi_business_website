@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "prod"
+  },
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "multi-business"
+  },
+  {
+    "ParameterKey": "DesiredCount",
+    "ParameterValue": "1"
+  },
+  {
+    "ParameterKey": "BackendSecretArn",
+    "ParameterValue": "REPLACE_WITH_SECRET_ARN_FROM_sync-secrets-to-aws.sh"
+  },
+  {
+    "ParameterKey": "AcmCertificateArn",
+    "ParameterValue": ""
+  }
+]

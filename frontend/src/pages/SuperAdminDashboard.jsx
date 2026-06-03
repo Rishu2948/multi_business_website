@@ -169,7 +169,7 @@ const SuperAdminDashboard = () => {
           </div>
 
           {/* Quick Actions */}
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Link
               to="/admin"
               className="bg-white border border-border p-6 hover:-translate-y-1 hover:shadow-lg transition-all"
@@ -181,7 +181,17 @@ const SuperAdminDashboard = () => {
             </Link>
 
             <Link
-              to="/admin"
+              to="/admin/orders"
+              className="bg-white border border-border p-6 hover:-translate-y-1 hover:shadow-lg transition-all"
+              data-testid="manage-orders-link"
+            >
+              <Package size={32} className="text-primary mb-4" strokeWidth={1.5} />
+              <h3 className="text-lg font-bold text-primary mb-2">MANAGE ORDERS</h3>
+              <p className="text-sm text-muted">View and manage customer orders</p>
+            </Link>
+
+            <Link
+              to="/super-admin/users"
               className="bg-white border border-border p-6 hover:-translate-y-1 hover:shadow-lg transition-all"
               data-testid="user-management-link"
             >

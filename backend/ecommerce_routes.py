@@ -12,7 +12,7 @@ from ecommerce_models import (
     SubscriptionCreate, Subscription,
     PaymentTransaction
 )
-from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest, CheckoutSessionResponse
+
 
 # Get database connection (will be set from main server.py)
 db = None

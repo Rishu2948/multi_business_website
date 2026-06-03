@@ -1,0 +1,267 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR, ECS Fargate, ALB for FastAPI backend
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, prod]
+  ProjectName:
+    Type: String
+    Default: multi-business
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+  PublicSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+  AlbSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  EcsSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  BackendSecretArn:
+    Type: String
+    Description: Full ARN of Secrets Manager secret multi-business/{env}/backend (from sync-secrets script)
+  DesiredCount:
+    Type: Number
+    Default: 1
+  ContainerCpu:
+    Type: String
+    Default: '512'
+  ContainerMemory:
+    Type: String
+    Default: '1024'
+  AcmCertificateArn:
+    Type: String
+    Default: ''
+    Description: Optional ACM cert ARN for HTTPS listener on ALB
+
+Conditions:
+  UseHttps: !Not [!Equals [!Ref AcmCertificateArn, '']]
+
+Resources:
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}-${Environment}-api
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [{
+              "rulePriority": 1,
+              "description": "Keep last 10 images",
+              "selection": {
+                "tagStatus": "any",
+                "countType": "imageCountMoreThan",
+                "countNumber": 10
+              },
+              "action": { "type": "expire" }
+            }]
+          }
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${ProjectName}-${Environment}-api
+      RetentionInDays: 14
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}-${Environment}
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${Environment}-ecs-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SecretsManagerRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref BackendSecretArn
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${Environment}-ecs-task
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-${Environment}-api
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: api
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}:latest
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8001
+              Protocol: tcp
+          Environment:
+            - Name: ENVIRONMENT
+              Value: !Ref Environment
+          Secrets:
+            - Name: MONGO_URL
+              ValueFrom: !Sub '${BackendSecretArn}:MONGO_URL::'
+            - Name: DB_NAME
+              ValueFrom: !Sub '${BackendSecretArn}:DB_NAME::'
+            - Name: GOOGLE_CLIENT_ID
+              ValueFrom: !Sub '${BackendSecretArn}:GOOGLE_CLIENT_ID::'
+            - Name: CORS_ORIGINS
+              ValueFrom: !Sub '${BackendSecretArn}:CORS_ORIGINS::'
+            - Name: STRIPE_API_KEY
+              ValueFrom: !Sub '${BackendSecretArn}:STRIPE_API_KEY::'
+            - Name: RAZORPAY_KEY_ID
+              ValueFrom: !Sub '${BackendSecretArn}:RAZORPAY_KEY_ID::'
+            - Name: RAZORPAY_KEY_SECRET
+              ValueFrom: !Sub '${BackendSecretArn}:RAZORPAY_KEY_SECRET::'
+            - Name: EMAIL_PROVIDER
+              ValueFrom: !Sub '${BackendSecretArn}:EMAIL_PROVIDER::'
+            - Name: EMAIL_API_KEY
+              ValueFrom: !Sub '${BackendSecretArn}:EMAIL_API_KEY::'
+            - Name: SENDER_EMAIL
+              ValueFrom: !Sub '${BackendSecretArn}:SENDER_EMAIL::'
+            - Name: MAILGUN_DOMAIN
+              ValueFrom: !Sub '${BackendSecretArn}:MAILGUN_DOMAIN::'
+            - Name: SMTP_HOST
+              ValueFrom: !Sub '${BackendSecretArn}:SMTP_HOST::'
+            - Name: SMTP_PORT
+              ValueFrom: !Sub '${BackendSecretArn}:SMTP_PORT::'
+            - Name: SMTP_USER
+              ValueFrom: !Sub '${BackendSecretArn}:SMTP_USER::'
+            - Name: SMTP_PASSWORD
+              ValueFrom: !Sub '${BackendSecretArn}:SMTP_PASSWORD::'
+            - Name: DEFAULT_NEW_USER_ROLE
+              ValueFrom: !Sub '${BackendSecretArn}:DEFAULT_NEW_USER_ROLE::'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnet1Id
+        - !Ref PublicSubnet2Id
+      SecurityGroups:
+        - !Ref AlbSecurityGroupId
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '300'
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-tg
+      Port: 8001
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /api/health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - !If
+          - UseHttps
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: '443'
+              StatusCode: HTTP_301
+          - Type: forward
+            TargetGroupArn: !Ref TargetGroup
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: UseHttps
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref AcmCertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  EcsService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - HttpListener
+    Properties:
+      ServiceName: !Sub ${ProjectName}-${Environment}-api
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnet1Id
+            - !Ref PublicSubnet2Id
+          SecurityGroups:
+            - !Ref EcsSecurityGroupId
+      LoadBalancers:
+        - ContainerName: api
+          ContainerPort: 8001
+          TargetGroupArn: !Ref TargetGroup
+      HealthCheckGracePeriodSeconds: 120
+
+Outputs:
+  EcrRepositoryUri:
+    Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}
+  ClusterName:
+    Value: !Ref EcsCluster
+  ServiceName:
+    Value: !GetAtt EcsService.Name
+  AlbDnsName:
+    Value: !GetAtt Alb.DNSName
+  AlbUrl:
+    Value: !Sub http://${Alb.DNSName}
