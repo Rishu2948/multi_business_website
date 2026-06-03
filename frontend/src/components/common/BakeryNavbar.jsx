@@ -90,6 +90,11 @@ const BakeryNavbar = () => {
           <div className="hidden md:flex items-center gap-8">
             <Link to="/business/whisked_words/catalog" className={linkClass('/business/whisked_words/catalog')} data-testid="nav-shop">Shop</Link>
             <Link to="/business/whisked_words/custom-order" className={linkClass('/business/whisked_words/custom-order')} data-testid="nav-custom-orders">Custom Orders</Link>
+            {isAuthenticated && (user?.role === 'super_admin' || user?.role === 'business_admin') && (
+              <Link to="/admin/orders" className={linkClass('/admin/orders')} data-testid="nav-admin-orders">
+                Manage Orders
+              </Link>
+            )}
             {isAuthenticated && getDashboardLink() && (
               <Link to={getDashboardLink()} className={linkClass(getDashboardLink())} data-testid="nav-dashboard">
                 {user?.role === 'delivery_agent' ? 'Deliveries' : user?.role === 'business_admin' ? 'Dashboard' : 'Admin'}

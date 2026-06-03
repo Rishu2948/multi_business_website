@@ -4,8 +4,9 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import BakeryNavbar from '../components/common/BakeryNavbar';
 import BakeryFooter from '../components/common/BakeryFooter';
+import LiveTrackingMap from '../components/common/LiveTrackingMap';
 import apiClient, { API_URL } from '../utils/api';
-import { Package, CheckCircle, Circle, AlertCircle, Truck, ArrowLeft, Phone } from 'lucide-react';
+import { Package, CheckCircle, Circle, AlertCircle, Truck, ArrowLeft, Phone, MapPin } from 'lucide-react';
 
 const statusIcons = {
   pending: Package, confirmed: CheckCircle, preparing: Package,
@@ -18,6 +19,8 @@ const OrderTrackingPage = () => {
   const { isAuthenticated } = useAuth();
   const [trackingData, setTrackingData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [agentLocation, setAgentLocation] = useState(null);
+  const [etaMinutes, setEtaMinutes] = useState(null);
   const sseRef = useRef(null);
 
   const fetchTracking = useCallback(async () => {
@@ -35,6 +38,18 @@ const OrderTrackingPage = () => {
   // SSE: auto-refresh tracking when order status changes
   useEffect(() => {
     if (!isAuthenticated || !orderId) return;
+
+    // Fetch agent location
+    const fetchAgentLocation = async () => {
+      try {
+        const res = await apiClient.get(`/locations/agent/${orderId}/location`);
+        if (res.data.location) setAgentLocation(res.data.location);
+        if (res.data.eta_minutes) setEtaMinutes(res.data.eta_minutes);
+      } catch {}
+    };
+    fetchAgentLocation();
+    const locInterval = setInterval(fetchAgentLocation, 15000);
+
     const sseUrl = `${API_URL.replace('/api', '')}/api/sse/events?token=${document.cookie.replace(/(?:(?:^|.*;\s*)session_token\s*=\s*([^;]*).*$)|^.*$/, '$1')}`;
     try {
       const es = new EventSource(sseUrl, { withCredentials: true });
@@ -45,10 +60,17 @@ const OrderTrackingPage = () => {
           if (data.type === 'order_status' && data.data?.order_id === orderId) {
             fetchTracking();
           }
+          if (data.type === 'agent_location' && data.data?.order_id === orderId) {
+            setAgentLocation({ lat: data.data.lat, lng: data.data.lng });
+            if (data.data.eta_minutes) setEtaMinutes(data.data.eta_minutes);
+          }
         } catch {}
       };
     } catch {}
-    return () => { if (sseRef.current) { sseRef.current.close(); sseRef.current = null; } };
+    return () => {
+      clearInterval(locInterval);
+      if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+    };
   }, [isAuthenticated, orderId, fetchTracking]);
 
   if (loading) {
@@ -141,6 +163,51 @@ const OrderTrackingPage = () => {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Live Tracking Map */}
+          {['on_the_way', 'reached_doorstep'].includes(current_status) && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-10" data-testid="tracking-map-section">
+              <div className="bg-white border border-[#E8E0D5] overflow-hidden">
+                <div className="p-6 border-b border-[#E8E0D5] flex items-center justify-between">
+                  <div>
+                    <p className="text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-1">Live Tracking</p>
+                    <div className="flex items-center gap-2">
+                      {agentLocation && <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span></span>}
+                      <p className="text-sm text-[#2C2420] font-medium">{agentLocation ? 'Agent is live' : 'Waiting for agent location...'}</p>
+                    </div>
+                  </div>
+                  {etaMinutes && (
+                    <div className="text-right">
+                      <p className="text-xs text-[#786A60] uppercase tracking-[0.1em]">Arriving in</p>
+                      <p className="font-serif text-2xl text-[#4A3B32]">{etaMinutes} <span className="text-sm">min</span></p>
+                    </div>
+                  )}
+                </div>
+                <LiveTrackingMap
+                  agentLocation={agentLocation}
+                  customerLocation={order.delivery_info?.lat && order.delivery_info?.lng ? { lat: order.delivery_info.lat, lng: order.delivery_info.lng } : null}
+                  agentName={delivery_agent?.name}
+                  etaMinutes={null}
+                />
+                {order.delivery_info?.lat && order.delivery_info?.lng && (
+                  <div className="p-4 border-t border-[#E8E0D5] flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-[#786A60]">
+                      <MapPin size={14} className="text-[#D4A373]" />
+                      <span>{order.delivery_info.address}, {order.delivery_info.city}</span>
+                    </div>
+                    <a
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${order.delivery_info.lat},${order.delivery_info.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs tracking-[0.1em] uppercase font-semibold text-[#D4A373] hover:text-[#4A3B32] transition-colors"
+                    >
+                      Open in Maps →
+                    </a>
+                  </div>
+                )}
+              </div>
+            </motion.div>
           )}
 
           {/* Order Details */}

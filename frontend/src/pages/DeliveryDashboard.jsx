@@ -1,11 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import BakeryNavbar from '../components/common/BakeryNavbar';
 import BakeryFooter from '../components/common/BakeryFooter';
+import LiveTrackingMap from '../components/common/LiveTrackingMap';
 import apiClient from '../utils/api';
 import { toast } from 'sonner';
-import { Package, Truck, MapPin, CheckCircle, XCircle, Navigation, Phone } from 'lucide-react';
+import { Package, Truck, MapPin, CheckCircle, XCircle, Navigation, Phone, Radio, ExternalLink } from 'lucide-react';
 
 const statusLabels = {
   pending: 'Pending', confirmed: 'Confirmed', preparing: 'Preparing',
@@ -26,6 +27,14 @@ const DeliveryDashboard = () => {
   const [updatingOrder, setUpdatingOrder] = useState(null);
   const [notDeliveredData, setNotDeliveredData] = useState({ reason: '', custom_reason: '' });
 
+  // GPS Sharing state
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [currentCoords, setCurrentCoords] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const gpsIntervalRef = useRef(null);
+  const watchIdRef = useRef(null);
+  const [expandedMap, setExpandedMap] = useState(null);
+
   const fetchOrders = useCallback(async () => {
     try {
       const res = await apiClient.get(`/order-management/delivery/my-orders${filter ? `?status=${filter}` : ''}`);
@@ -35,6 +44,71 @@ const DeliveryDashboard = () => {
   }, [filter]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
+  // GPS Location Sharing
+  const startSharing = () => {
+    if (!navigator.geolocation) { toast.error('Geolocation not supported by your browser'); return; }
+
+    setSharingLocation(true);
+    toast.success('Location sharing started');
+
+    // Watch position continuously
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      (err) => {
+        console.error('GPS error:', err);
+        toast.error('Unable to access location. Please allow GPS permission.');
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+
+    // Send location updates every 10 seconds
+    const sendUpdate = async () => {
+      try {
+        const pos = await new Promise((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+        );
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setCurrentCoords({ lat, lng });
+        await apiClient.put('/locations/agent/update-location', { lat, lng });
+        setLastUpdated(new Date());
+      } catch (err) {
+        console.error('Failed to send location update:', err);
+      }
+    };
+
+    sendUpdate(); // Send immediately
+    gpsIntervalRef.current = setInterval(sendUpdate, 10000);
+  };
+
+  const stopSharing = async () => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    if (gpsIntervalRef.current) {
+      clearInterval(gpsIntervalRef.current);
+      gpsIntervalRef.current = null;
+    }
+    try {
+      await apiClient.put('/locations/agent/stop-sharing');
+    } catch {}
+    setSharingLocation(false);
+    setCurrentCoords(null);
+    setLastUpdated(null);
+    toast.info('Location sharing stopped');
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+      if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current);
+    };
+  }, []);
 
   const updateStatus = async (orderId, status, extra = {}) => {
     try {
@@ -55,9 +129,20 @@ const DeliveryDashboard = () => {
     }
   };
 
+  const openNavigation = (deliveryInfo) => {
+    if (deliveryInfo?.lat && deliveryInfo?.lng) {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${deliveryInfo.lat},${deliveryInfo.lng}`, '_blank');
+    } else {
+      const address = `${deliveryInfo?.address || ''}, ${deliveryInfo?.city || ''}, ${deliveryInfo?.pincode || ''}`;
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`, '_blank');
+    }
+  };
+
   if (loading) {
     return (<div className="min-h-screen flex flex-col bg-[#FAF8F5]"><BakeryNavbar /><div className="flex-1 flex items-center justify-center"><div className="w-12 h-12 border-4 border-[#4A3B32] border-t-transparent rounded-full animate-spin" /></div></div>);
   }
+
+  const activeOrders = orders.filter(o => ['preparing', 'on_the_way', 'reached_doorstep'].includes(o.order_status));
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F5]" data-testid="delivery-dashboard">
@@ -69,6 +154,65 @@ const DeliveryDashboard = () => {
             <p className="text-xs tracking-[0.2em] uppercase text-[#D4A373] font-semibold mb-2">Delivery Dashboard</p>
             <h1 className="font-serif text-4xl text-[#2C2420] mb-2">My Deliveries</h1>
             <p className="text-sm text-[#786A60] mb-10">Welcome, {user?.name}</p>
+          </motion.div>
+
+          {/* GPS Location Sharing Control */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className={`mb-8 border p-6 transition-all duration-300 ${
+              sharingLocation
+                ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+                : 'bg-white border-[#E8E0D5]'
+            }`}
+            data-testid="gps-sharing-section"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 flex items-center justify-center transition-colors ${
+                  sharingLocation ? 'bg-green-500' : 'bg-[#F3EFEA]'
+                }`}>
+                  {sharingLocation
+                    ? <Radio size={20} className="text-white" />
+                    : <Radio size={20} className="text-[#786A60] opacity-50" />
+                  }
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-[#2C2420]">Live Location Sharing</p>
+                    {sharingLocation && (
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#786A60] mt-0.5">
+                    {sharingLocation
+                      ? `Sharing • ${currentCoords ? `${currentCoords.lat.toFixed(4)}, ${currentCoords.lng.toFixed(4)}` : 'Detecting...'}`
+                      : `${activeOrders.length} active order${activeOrders.length !== 1 ? 's' : ''} — start sharing to enable customer tracking`
+                    }
+                  </p>
+                  {lastUpdated && (
+                    <p className="text-[10px] text-green-600 mt-0.5">
+                      Last update: {lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={sharingLocation ? stopSharing : startSharing}
+                className={`px-6 py-3 text-xs tracking-[0.1em] uppercase font-semibold transition-colors flex items-center gap-2 ${
+                  sharingLocation
+                    ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                    : 'bg-[#4A3B32] text-white hover:bg-[#332822]'
+                }`}
+                data-testid="gps-toggle-btn"
+              >
+                {sharingLocation ? <><Radio size={14} className="opacity-75" /> Stop Sharing</> : <><Radio size={14} /> Start Sharing</>}
+              </button>
+            </div>
           </motion.div>
 
           {/* Filters */}
@@ -90,6 +234,8 @@ const DeliveryDashboard = () => {
             <div className="space-y-4" data-testid="delivery-orders-list">
               {orders.map(order => {
                 const action = getNextAction(order.order_status);
+                const isActive = ['preparing', 'on_the_way', 'reached_doorstep'].includes(order.order_status);
+                const showMap = expandedMap === order.order_id;
                 return (
                   <motion.div key={order.order_id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white border border-[#E8E0D5]" data-testid={`delivery-order-${order.order_id}`}>
                     <div className="p-6">
@@ -119,14 +265,50 @@ const DeliveryDashboard = () => {
                       {order.delivery_info && (
                         <div className="mb-4 flex items-start gap-3">
                           <MapPin size={16} className="text-[#D4A373] mt-0.5 flex-shrink-0" />
-                          <div>
+                          <div className="flex-1">
                             <p className="text-sm font-medium text-[#2C2420]">{order.delivery_info.name}</p>
                             <p className="text-sm text-[#786A60]">{order.delivery_info.address}, {order.delivery_info.city} - {order.delivery_info.pincode}</p>
                             {order.delivery_info.phone && (
                               <a href={`tel:${order.delivery_info.phone}`} className="text-sm text-[#D4A373] hover:text-[#4A3B32] flex items-center gap-1 mt-1 transition-colors"><Phone size={12} />{order.delivery_info.phone}</a>
                             )}
+                            {order.delivery_info.lat && (
+                              <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1"><MapPin size={10} />GPS: {order.delivery_info.lat.toFixed(4)}, {order.delivery_info.lng.toFixed(4)}</p>
+                            )}
                           </div>
                         </div>
+                      )}
+
+                      {/* Navigate & Map Toggle Buttons */}
+                      {isActive && order.delivery_info && (
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          <button
+                            onClick={() => openNavigation(order.delivery_info)}
+                            className="px-4 py-2.5 text-xs tracking-[0.1em] uppercase font-semibold bg-[#D4A373] text-white hover:bg-[#c49363] transition-colors flex items-center gap-2"
+                            data-testid={`navigate-btn-${order.order_id}`}
+                          >
+                            <Navigation size={14} /> Navigate
+                            <ExternalLink size={11} />
+                          </button>
+                          <button
+                            onClick={() => setExpandedMap(showMap ? null : order.order_id)}
+                            className="px-4 py-2.5 text-xs tracking-[0.1em] uppercase font-semibold bg-[#FAF8F5] text-[#4A3B32] border border-[#E8E0D5] hover:bg-[#F3EFEA] transition-colors flex items-center gap-2"
+                            data-testid={`toggle-map-btn-${order.order_id}`}
+                          >
+                            <MapPin size={14} /> {showMap ? 'Hide Map' : 'Show Map'}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Expandable Map */}
+                      {showMap && order.delivery_info && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mb-4 overflow-hidden border border-[#E8E0D5]">
+                          <LiveTrackingMap
+                            agentLocation={currentCoords}
+                            customerLocation={order.delivery_info?.lat && order.delivery_info?.lng ? { lat: order.delivery_info.lat, lng: order.delivery_info.lng } : null}
+                            agentName="You"
+                            etaMinutes={null}
+                          />
+                        </motion.div>
                       )}
 
                       {/* Actions */}

@@ -1,0 +1,876 @@
+{
+  "exported_at": "2026-06-02T20:38:42.139015Z",
+  "db_name": "multi_business",
+  "collections": {
+    "businesses": [
+      {
+        "business_id": "rishabh_garments",
+        "business_name": "Rishabh Garments",
+        "business_type": "kids_wear",
+        "description": "Premium kids wear collection for all ages",
+        "logo_url": "https://images.pexels.com/photos/5560013/pexels-photo-5560013.jpeg",
+        "contact": {
+          "email": "contact@rishabhgarments.com",
+          "phone": "+91-9876543210",
+          "address": {
+            "street": "123 Fashion Street",
+            "city": "Mumbai",
+            "state": "Maharashtra",
+            "pincode": "400001",
+            "country": "India"
+          }
+        },
+        "settings": {
+          "currency": "INR",
+          "timezone": "Asia/Kolkata",
+          "inventory_alerts": {
+            "low_stock_threshold": 10,
+            "enable_email_alerts": true
+          }
+        },
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        }
+      },
+      {
+        "business_id": "jain_jewellers",
+        "business_name": "Jain Jewellers",
+        "business_type": "jewellery",
+        "description": "Exquisite gold and diamond jewellery",
+        "logo_url": "https://images.pexels.com/photos/3641056/pexels-photo-3641056.jpeg",
+        "contact": {
+          "email": "contact@jainjewellers.com",
+          "phone": "+91-9876543211",
+          "address": {
+            "street": "456 Jewel Plaza",
+            "city": "Jaipur",
+            "state": "Rajasthan",
+            "pincode": "302001",
+            "country": "India"
+          }
+        },
+        "settings": {
+          "currency": "INR",
+          "timezone": "Asia/Kolkata",
+          "inventory_alerts": {
+            "low_stock_threshold": 5,
+            "enable_email_alerts": true
+          }
+        },
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        }
+      },
+      {
+        "business_id": "jain_sarees",
+        "business_name": "Jain Sarees",
+        "business_type": "saree",
+        "description": "Traditional and designer sarees",
+        "logo_url": "https://images.pexels.com/photos/36194190/pexels-photo-36194190.jpeg",
+        "contact": {
+          "email": "contact@jainsarees.com",
+          "phone": "+91-9876543212",
+          "address": {
+            "street": "789 Silk Road",
+            "city": "Surat",
+            "state": "Gujarat",
+            "pincode": "395001",
+            "country": "India"
+          }
+        },
+        "settings": {
+          "currency": "INR",
+          "timezone": "Asia/Kolkata",
+          "inventory_alerts": {
+            "low_stock_threshold": 8,
+            "enable_email_alerts": true
+          }
+        },
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        }
+      },
+      {
+        "business_id": "whisked_words",
+        "business_name": "Whisked Words",
+        "business_type": "bakery",
+        "description": "Artisan bakery with fresh pastries and custom cakes",
+        "logo_url": "https://images.pexels.com/photos/192933/pexels-photo-192933.jpeg",
+        "contact": {
+          "email": "contact@whiskedwords.com",
+          "phone": "+91-9876543213",
+          "address": {
+            "street": "321 Baker's Lane",
+            "city": "Bangalore",
+            "state": "Karnataka",
+            "pincode": "560001",
+            "country": "India"
+          }
+        },
+        "settings": {
+          "currency": "INR",
+          "timezone": "Asia/Kolkata",
+          "inventory_alerts": {
+            "low_stock_threshold": 15,
+            "enable_email_alerts": true
+          }
+        },
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.686Z"
+        }
+      }
+    ],
+    "users": [
+      {
+        "user_id": "user_198cd22f6832",
+        "email": "rishabhjain2948@gmail.com",
+        "name": "Rishabh Jain",
+        "picture": "https://lh3.googleusercontent.com/a/ACg8ocKjjhbEpYtcQ35ciwGTTDt2F1pEY0Bzqf4zsfjD32kRxMvGVw=s96-c",
+        "role": "super_admin",
+        "business_access": [
+          {
+            "business_id": "whisked_words",
+            "role": "delivery_agent",
+            "assigned_at": "2026-06-02T14:17:10.532317+00:00"
+          }
+        ],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:09:07.611Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T14:17:10.532Z"
+        },
+        "last_login": {
+          "$date": "2026-06-02T14:13:23.236Z"
+        }
+      },
+      {
+        "user_id": "user_0bfd8bd4190f",
+        "email": "rishu.jain2948@gmail.com",
+        "name": "Rishabh Jain",
+        "picture": "https://lh3.googleusercontent.com/a/ACg8ocJ398SxWgxHl5bMifffa5N1PlInXZSv_4mKjBSkG5oSBZ6rGw=s96-c",
+        "role": "customer",
+        "business_access": [],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:13:55.406Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T17:53:26.705Z"
+        },
+        "last_login": {
+          "$date": "2026-06-02T07:28:27.674Z"
+        }
+      },
+      {
+        "user_id": "user_58e5bcec4d73",
+        "email": "superadmin@multibiz.com",
+        "name": "Super Admin",
+        "picture": "",
+        "role": "super_admin",
+        "business_access": [],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        },
+        "last_login": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        }
+      }
+    ],
+    "user_profiles": [
+      {
+        "user_id": "user_198cd22f6832",
+        "base_pincode": "208012",
+        "phone": "+917525002948",
+        "updated_at": "2026-06-02T14:17:10.534229+00:00"
+      }
+    ],
+    "products": [
+      {
+        "product_id": "prod_f7aabdf91663",
+        "business_id": "rishabh_garments",
+        "category_id": null,
+        "product_name": "Boys Cotton T-Shirt",
+        "description": "100% cotton, comfortable fit for active kids",
+        "base_price": 499.0,
+        "currency": "INR",
+        "images": [
+          {
+            "url": "https://images.pexels.com/photos/5560013/pexels-photo-5560013.jpeg",
+            "alt": "Kids wear",
+            "is_primary": true
+          }
+        ],
+        "attributes": {
+          "age_group": "5-7 years",
+          "sizes": [
+            "S",
+            "M",
+            "L"
+          ],
+          "colors": [
+            "Red",
+            "Blue",
+            "Green"
+          ],
+          "material": "100% Cotton",
+          "brand": "RG Kids"
+        },
+        "variants": [
+          {
+            "variant_id": "var_001",
+            "sku": "RG-TS-001-RED-M",
+            "size": "M",
+            "color": "Red",
+            "additional_price": 0,
+            "inventory_count": 50
+          },
+          {
+            "variant_id": "var_002",
+            "sku": "RG-TS-001-BLUE-M",
+            "size": "M",
+            "color": "Blue",
+            "additional_price": 0,
+            "inventory_count": 30
+          }
+        ],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        }
+      },
+      {
+        "product_id": "prod_9286d8cedd56",
+        "business_id": "rishabh_garments",
+        "category_id": null,
+        "product_name": "Girls Party Dress",
+        "description": "Beautiful party wear dress for special occasions",
+        "base_price": 1299.0,
+        "currency": "INR",
+        "images": [
+          {
+            "url": "https://images.pexels.com/photos/5560013/pexels-photo-5560013.jpeg",
+            "alt": "Girls dress",
+            "is_primary": true
+          }
+        ],
+        "attributes": {
+          "age_group": "3-5 years",
+          "sizes": [
+            "S",
+            "M",
+            "L"
+          ],
+          "colors": [
+            "Pink",
+            "Purple"
+          ],
+          "material": "Cotton Blend",
+          "brand": "RG Kids"
+        },
+        "variants": [
+          {
+            "variant_id": "var_001",
+            "sku": "RG-DR-002-PINK-M",
+            "size": "M",
+            "color": "Pink",
+            "additional_price": 0,
+            "inventory_count": 25
+          }
+        ],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        }
+      },
+      {
+        "product_id": "prod_a1d89252ce67",
+        "business_id": "jain_jewellers",
+        "category_id": null,
+        "product_name": "Gold Necklace",
+        "description": "22K gold necklace with intricate traditional design",
+        "base_price": 85000.0,
+        "currency": "INR",
+        "images": [
+          {
+            "url": "https://images.pexels.com/photos/3641056/pexels-photo-3641056.jpeg",
+            "alt": "Gold necklace",
+            "is_primary": true
+          }
+        ],
+        "attributes": {
+          "metal_type": "Gold",
+          "purity": "22K",
+          "weight": "25.5g",
+          "stone_type": "Ruby",
+          "making_charges": 5000.0,
+          "hallmark": true
+        },
+        "variants": [],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        }
+      },
+      {
+        "product_id": "prod_b1b85cd21bd1",
+        "business_id": "jain_sarees",
+        "category_id": null,
+        "product_name": "Banarasi Silk Saree",
+        "description": "Authentic Banarasi silk saree with golden zari work",
+        "base_price": 5999.0,
+        "currency": "INR",
+        "images": [
+          {
+            "url": "https://images.pexels.com/photos/36194190/pexels-photo-36194190.jpeg",
+            "alt": "Banarasi saree",
+            "is_primary": true
+          }
+        ],
+        "attributes": {
+          "fabric": "Pure Silk",
+          "design": "Traditional Zari",
+          "length": "6.5 meters",
+          "color": "Red",
+          "occasion": "Wedding, Festival"
+        },
+        "variants": [],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        }
+      },
+      {
+        "product_id": "prod_d5a7604f52d9",
+        "business_id": "whisked_words",
+        "category_id": null,
+        "product_name": "Chocolate Truffle Cake",
+        "description": "Rich chocolate cake with truffle filling",
+        "base_price": 850.0,
+        "currency": "INR",
+        "images": [
+          {
+            "url": "https://images.pexels.com/photos/192933/pexels-photo-192933.jpeg",
+            "alt": "Chocolate cake",
+            "is_primary": true
+          }
+        ],
+        "attributes": {
+          "weight": "500g",
+          "serves": "4-6 people",
+          "ingredients": [
+            "Flour",
+            "Cocoa",
+            "Sugar",
+            "Butter",
+            "Eggs"
+          ],
+          "allergens": [
+            "Gluten",
+            "Dairy",
+            "Eggs"
+          ],
+          "shelf_life": "2 days",
+          "storage": "Refrigerated",
+          "customizable": true
+        },
+        "variants": [
+          {
+            "variant_id": "var_001",
+            "sku": "WW-CAKE-001-500G",
+            "weight": "500g",
+            "additional_price": 0,
+            "inventory_count": 10
+          },
+          {
+            "variant_id": "var_002",
+            "sku": "WW-CAKE-001-1KG",
+            "weight": "1kg",
+            "additional_price": 750.0,
+            "inventory_count": 5
+          }
+        ],
+        "status": "active",
+        "created_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T07:15:48.709Z"
+        }
+      }
+    ],
+    "inventory": [
+      {
+        "inventory_id": "inv_6daaf0d47bca",
+        "business_id": "rishabh_garments",
+        "product_id": "prod_f7aabdf91663",
+        "variant_id": "var_001",
+        "sku": "RG-TS-001-RED-M",
+        "quantity": {
+          "available": 50,
+          "reserved": 0,
+          "total": 50
+        },
+        "location": {
+          "warehouse": "Main Warehouse",
+          "shelf": "",
+          "bin": ""
+        },
+        "reorder": {
+          "reorder_level": 10,
+          "reorder_quantity": 50,
+          "supplier": ""
+        },
+        "last_restocked": {
+          "$date": "2026-06-02T07:15:48.734Z"
+        },
+        "last_updated": {
+          "$date": "2026-06-02T07:15:48.734Z"
+        },
+        "movements": []
+      },
+      {
+        "inventory_id": "inv_8c42da32bb4d",
+        "business_id": "rishabh_garments",
+        "product_id": "prod_f7aabdf91663",
+        "variant_id": "var_002",
+        "sku": "RG-TS-001-BLUE-M",
+        "quantity": {
+          "available": 30,
+          "reserved": 0,
+          "total": 30
+        },
+        "location": {
+          "warehouse": "Main Warehouse",
+          "shelf": "",
+          "bin": ""
+        },
+        "reorder": {
+          "reorder_level": 10,
+          "reorder_quantity": 50,
+          "supplier": ""
+        },
+        "last_restocked": {
+          "$date": "2026-06-02T07:15:48.756Z"
+        },
+        "last_updated": {
+          "$date": "2026-06-02T07:15:48.756Z"
+        },
+        "movements": []
+      },
+      {
+        "inventory_id": "inv_fb8abc38c3cd",
+        "business_id": "rishabh_garments",
+        "product_id": "prod_9286d8cedd56",
+        "variant_id": "var_001",
+        "sku": "RG-DR-002-PINK-M",
+        "quantity": {
+          "available": 25,
+          "reserved": 0,
+          "total": 25
+        },
+        "location": {
+          "warehouse": "Main Warehouse",
+          "shelf": "",
+          "bin": ""
+        },
+        "reorder": {
+          "reorder_level": 10,
+          "reorder_quantity": 50,
+          "supplier": ""
+        },
+        "last_restocked": {
+          "$date": "2026-06-02T07:15:48.757Z"
+        },
+        "last_updated": {
+          "$date": "2026-06-02T07:15:48.757Z"
+        },
+        "movements": []
+      },
+      {
+        "inventory_id": "inv_922cdcedadb1",
+        "business_id": "jain_jewellers",
+        "product_id": "prod_a1d89252ce67",
+        "variant_id": null,
+        "sku": "",
+        "quantity": {
+          "available": 1,
+          "reserved": 0,
+          "total": 1
+        },
+        "location": {
+          "warehouse": "Main Warehouse",
+          "shelf": "",
+          "bin": ""
+        },
+        "reorder": {
+          "reorder_level": 1,
+          "reorder_quantity": 5,
+          "supplier": ""
+        },
+        "last_restocked": {
+          "$date": "2026-06-02T07:15:48.757Z"
+        },
+        "last_updated": {
+          "$date": "2026-06-02T07:15:48.757Z"
+        },
+        "movements": []
+      },
+      {
+        "inventory_id": "inv_58ba85393ecc",
+        "business_id": "jain_sarees",
+        "product_id": "prod_b1b85cd21bd1",
+        "variant_id": null,
+        "sku": "",
+        "quantity": {
+          "available": 1,
+          "reserved": 0,
+          "total": 1
+        },
+        "location": {
+          "warehouse": "Main Warehouse",
+          "shelf": "",
+          "bin": ""
+        },
+        "reorder": {
+          "reorder_level": 1,
+          "reorder_quantity": 5,
+          "supplier": ""
+        },
+        "last_restocked": {
+          "$date": "2026-06-02T07:15:48.757Z"
+        },
+        "last_updated": {
+          "$date": "2026-06-02T07:15:48.757Z"
+        },
+        "movements": []
+      },
+      {
+        "inventory_id": "inv_b81445334a61",
+        "business_id": "whisked_words",
+        "product_id": "prod_d5a7604f52d9",
+        "variant_id": "var_001",
+        "sku": "WW-CAKE-001-500G",
+        "quantity": {
+          "available": 7,
+          "reserved": 3,
+          "total": 10
+        },
+        "location": {
+          "warehouse": "Main Warehouse",
+          "shelf": "",
+          "bin": ""
+        },
+        "reorder": {
+          "reorder_level": 10,
+          "reorder_quantity": 50,
+          "supplier": ""
+        },
+        "last_restocked": {
+          "$date": "2026-06-02T07:15:48.758Z"
+        },
+        "last_updated": {
+          "$date": "2026-06-02T07:15:48.758Z"
+        },
+        "movements": []
+      },
+      {
+        "inventory_id": "inv_103e526b50a5",
+        "business_id": "whisked_words",
+        "product_id": "prod_d5a7604f52d9",
+        "variant_id": "var_002",
+        "sku": "WW-CAKE-001-1KG",
+        "quantity": {
+          "available": 5,
+          "reserved": 0,
+          "total": 5
+        },
+        "location": {
+          "warehouse": "Main Warehouse",
+          "shelf": "",
+          "bin": ""
+        },
+        "reorder": {
+          "reorder_level": 10,
+          "reorder_quantity": 50,
+          "supplier": ""
+        },
+        "last_restocked": {
+          "$date": "2026-06-02T07:15:48.758Z"
+        },
+        "last_updated": {
+          "$date": "2026-06-02T07:15:48.758Z"
+        },
+        "movements": []
+      }
+    ],
+    "saved_addresses": [
+      {
+        "address_id": "addr_2633bd153f0c",
+        "user_id": "user_0bfd8bd4190f",
+        "label": "Home",
+        "name": "Rishabh Jain",
+        "phone": "7525002948",
+        "email": "rishu.jain2948@gmail.com",
+        "address": "Shanders Springdale apartment",
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "pincode": "560066",
+        "lat": 12.979278131231853,
+        "lng": 77.73422868922248,
+        "is_default": true,
+        "created_at": "2026-06-02T07:30:46.402729+00:00",
+        "updated_at": "2026-06-02T07:30:46.402745+00:00"
+      }
+    ],
+    "orders": [
+      {
+        "order_id": "ord_71f8c02b626d",
+        "user_id": "user_0bfd8bd4190f",
+        "business_id": "whisked_words",
+        "items": [
+          {
+            "product_id": "prod_d5a7604f52d9",
+            "variant_id": null,
+            "product_name": "Chocolate Truffle Cake",
+            "quantity": 1,
+            "price": 850.0,
+            "subtotal": 850.0,
+            "image_url": null
+          }
+        ],
+        "delivery_info": {
+          "name": "Rishabh Jain",
+          "phone": "7525002948",
+          "email": "rishu.jain2948@gmail.com",
+          "address": "Shanders Springdale apartment",
+          "city": "Bengaluru",
+          "state": "Karnataka",
+          "pincode": "560066",
+          "lat": 12.979278131231853,
+          "lng": 77.73422868922248,
+          "delivery_date": null,
+          "delivery_time": null,
+          "special_instructions": null
+        },
+        "payment_method": "cod",
+        "payment_status": "pending",
+        "payment_id": null,
+        "order_status": "cancelled",
+        "status_history": [
+          {
+            "status": "pending",
+            "timestamp": "2026-06-02T07:31:15.494608+00:00",
+            "updated_by": "system",
+            "role": "system"
+          },
+          {
+            "status": "confirmed",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T07:53:38.734147+00:00"
+          },
+          {
+            "status": "preparing",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T07:53:41.674975+00:00"
+          },
+          {
+            "status": "cancelled",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T17:54:47.035200+00:00"
+          }
+        ],
+        "subtotal": 850.0,
+        "tax": 42.5,
+        "delivery_charge": 0.0,
+        "total": 892.5,
+        "created_at": {
+          "$date": "2026-06-02T07:31:15.494Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T17:54:47.035Z"
+        }
+      },
+      {
+        "order_id": "ord_47e389e431d1",
+        "user_id": "user_0bfd8bd4190f",
+        "business_id": "whisked_words",
+        "items": [
+          {
+            "product_id": "prod_d5a7604f52d9",
+            "variant_id": null,
+            "product_name": "Chocolate Truffle Cake",
+            "quantity": 1,
+            "price": 850.0,
+            "subtotal": 850.0,
+            "image_url": null
+          }
+        ],
+        "delivery_info": {
+          "name": "Rishabh Jain",
+          "phone": "7525002948",
+          "email": "rishu.jain2948@gmail.com",
+          "address": "Shanders Springdale apartment",
+          "city": "Bengaluru",
+          "state": "Karnataka",
+          "pincode": "560066",
+          "lat": 12.979278131231853,
+          "lng": 77.73422868922248,
+          "delivery_date": null,
+          "delivery_time": null,
+          "special_instructions": null
+        },
+        "payment_method": "cod",
+        "payment_status": "pending",
+        "payment_id": null,
+        "order_status": "cancelled",
+        "status_history": [
+          {
+            "status": "pending",
+            "timestamp": "2026-06-02T14:15:29.228722+00:00",
+            "updated_by": "system",
+            "role": "system"
+          },
+          {
+            "status": "confirmed",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T14:16:37.062771+00:00"
+          },
+          {
+            "status": "cancelled",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T17:55:00.691839+00:00"
+          }
+        ],
+        "subtotal": 850.0,
+        "tax": 42.5,
+        "delivery_charge": 0.0,
+        "total": 892.5,
+        "created_at": {
+          "$date": "2026-06-02T14:15:29.228Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T17:55:00.691Z"
+        }
+      },
+      {
+        "order_id": "ord_758c156ac06c",
+        "user_id": "user_0bfd8bd4190f",
+        "business_id": "whisked_words",
+        "items": [
+          {
+            "product_id": "prod_d5a7604f52d9",
+            "variant_id": null,
+            "product_name": "Chocolate Truffle Cake",
+            "quantity": 1,
+            "price": 850.0,
+            "subtotal": 850.0,
+            "image_url": null
+          }
+        ],
+        "delivery_info": {
+          "name": "Rishabh Jain",
+          "phone": "7525002948",
+          "email": "rishu.jain2948@gmail.com",
+          "address": "Shanders Springdale apartment",
+          "city": "Bengaluru",
+          "state": "Karnataka",
+          "pincode": "560066",
+          "lat": 12.979278131231853,
+          "lng": 77.73422868922248,
+          "delivery_date": null,
+          "delivery_time": null,
+          "special_instructions": null
+        },
+        "payment_method": "cod",
+        "payment_status": "pending",
+        "payment_id": null,
+        "order_status": "cancelled",
+        "status_history": [
+          {
+            "status": "pending",
+            "timestamp": "2026-06-02T15:36:42.415574+00:00",
+            "updated_by": "system",
+            "role": "system"
+          },
+          {
+            "status": "confirmed",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T15:37:03.610149+00:00"
+          },
+          {
+            "status": "preparing",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T15:37:23.727372+00:00"
+          },
+          {
+            "status": "cancelled",
+            "updated_by": "user_198cd22f6832",
+            "role": "super_admin",
+            "timestamp": "2026-06-02T17:54:43.507546+00:00"
+          }
+        ],
+        "subtotal": 850.0,
+        "tax": 42.5,
+        "delivery_charge": 0.0,
+        "total": 892.5,
+        "created_at": {
+          "$date": "2026-06-02T15:36:42.415Z"
+        },
+        "updated_at": {
+          "$date": "2026-06-02T17:54:43.507Z"
+        }
+      }
+    ],
+    "loyalty_points": [
+      {
+        "user_id": "user_0bfd8bd4190f",
+        "tier": "bronze"
+      },
+      {
+        "user_id": "user_198cd22f6832",
+        "tier": "bronze"
+      }
+    ]
+  }
+}

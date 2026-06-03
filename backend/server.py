@@ -3,9 +3,13 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 import os
 import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone, timedelta
 import uuid
 import httpx
@@ -15,14 +19,33 @@ load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
 db = client[os.environ['DB_NAME']]
+
+
+def _is_production() -> bool:
+    return os.environ.get("ENVIRONMENT", "development").lower() == "production"
+
+
+def _cors_origins() -> list:
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if "*" in origins:
+        return ["http://localhost:3000"]
+    return origins
 
 # Create the main app
 app = FastAPI()
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
+
+
+@api_router.get("/health")
+async def health():
+    """ALB / ECS health check"""
+    return {"status": "ok"}
+
 
 # ============= AUTHENTICATION MIDDLEWARE =============
 async def get_current_user(request: Request):
@@ -91,94 +114,89 @@ async def check_business_access(user: dict, business_id: str) -> bool:
     
     return False
 
-# ============= AUTH ROUTES =============
-@api_router.post("/auth/session")
-async def create_session(request: Request, response: Response):
-    """Exchange session_id for session_token after OAuth"""
+@api_router.post("/auth/google")
+async def google_login(request: Request, response: Response):
+    """Verify Google ID token and create session"""
     body = await request.json()
-    session_id = body.get("session_id")
+    token = body.get("token")
     
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
+    if not token:
+        raise HTTPException(status_code=400, detail="token required")
     
-    # Call Emergent OAuth API
-    async with httpx.AsyncClient() as http_client:
-        try:
-            emergent_response = await http_client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": session_id},
-                timeout=10.0
+    try:
+        # Verify Google JWT
+        client_id = os.environ.get("GOOGLE_CLIENT_ID")
+        if not client_id:
+            raise HTTPException(status_code=500, detail="Google Client ID not configured")
+            
+        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+        
+        # Check if user exists
+        user = await db.users.find_one({"email": idinfo["email"]}, {"_id": 0})
+        
+        if not user:
+            # Create new user
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            user = {
+                "user_id": user_id,
+                "email": idinfo["email"],
+                "name": idinfo.get("name", ""),
+                "picture": idinfo.get("picture", ""),
+                "role": os.environ.get("DEFAULT_NEW_USER_ROLE", "customer"),
+                "business_access": [],
+                "status": "active",
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+                "last_login": datetime.now(timezone.utc)
+            }
+            await db.users.insert_one(user.copy())
+        else:
+            # Update last login
+            await db.users.update_one(
+                {"user_id": user["user_id"]},
+                {"$set": {"last_login": datetime.now(timezone.utc)}}
             )
-            
-            if emergent_response.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid session_id")
-            
-            oauth_data = emergent_response.json()
-            
-        except httpx.RequestError as e:
-            logging.error(f"OAuth request failed: {e}")
-            raise HTTPException(status_code=500, detail="Authentication service unavailable")
-    
-    # Check if user exists
-    user = await db.users.find_one({"email": oauth_data["email"]}, {"_id": 0})
-    
-    if not user:
-        # Create new user with customer role by default
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        user = {
-            "user_id": user_id,
-            "email": oauth_data["email"],
-            "name": oauth_data["name"],
-            "picture": oauth_data.get("picture", ""),
-            "role": "customer",
-            "business_access": [],
-            "status": "active",
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-            "last_login": datetime.now(timezone.utc)
-        }
-        await db.users.insert_one(user.copy())
-    else:
-        # Update last login
-        await db.users.update_one(
-            {"user_id": user["user_id"]},
-            {"$set": {"last_login": datetime.now(timezone.utc)}}
-        )
-    
-    # Create session
-    session_data = {
-        "session_id": str(uuid.uuid4()),
-        "user_id": user["user_id"],
-        "session_token": oauth_data["session_token"],
-        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
-        "created_at": datetime.now(timezone.utc),
-        "ip_address": request.client.host,
-        "user_agent": request.headers.get("user-agent", "")
-    }
-    await db.user_sessions.insert_one(session_data)
-    
-    # Set httpOnly cookie
-    response.set_cookie(
-        key="session_token",
-        value=oauth_data["session_token"],
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=7*24*60*60
-    )
-    
-    return {
-        "user": {
+        
+        # Create session
+        session_data = {
+            "session_id": str(uuid.uuid4()),
             "user_id": user["user_id"],
-            "email": user["email"],
-            "name": user["name"],
-            "picture": user["picture"],
-            "role": user["role"],
-            "business_access": user.get("business_access", [])
-        },
-        "message": "Login successful"
-    }
+            "session_token": f"token_{uuid.uuid4().hex}",
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+            "created_at": datetime.now(timezone.utc),
+            "ip_address": request.client.host,
+            "user_agent": request.headers.get("user-agent", "")
+        }
+        await db.user_sessions.insert_one(session_data)
+        
+        # Local dev uses HTTP — Secure cookies are ignored by the browser on http://localhost
+        response.set_cookie(
+            key="session_token",
+            value=session_data["session_token"],
+            httponly=True,
+            secure=_is_production(),
+            samesite="none" if _is_production() else "lax",
+            path="/",
+            max_age=7 * 24 * 60 * 60,
+        )
+        
+        return {
+            "user": {
+                "user_id": user["user_id"],
+                "email": user["email"],
+                "name": user["name"],
+                "picture": user["picture"],
+                "role": user["role"],
+                "business_access": user.get("business_access", [])
+            },
+            "message": "Login successful"
+        }
+    except ValueError as e:
+        logger.warning("Invalid Google token: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+    except Exception as e:
+        logger.exception("Google login failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/auth/me")
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
@@ -828,6 +846,40 @@ async def assign_role(
     
     return {"message": "Role assigned successfully"}
 
+
+@api_router.patch("/users/{user_id}")
+async def update_user(
+    user_id: str,
+    request: Request,
+    current_user: dict = Depends(require_role(["super_admin"])),
+):
+    """Super admin: update global role and/or business_access"""
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    data = await request.json()
+    updates = {"updated_at": datetime.now(timezone.utc)}
+
+    if "role" in data:
+        allowed = ["super_admin", "business_admin", "staff", "delivery_agent", "customer"]
+        if data["role"] not in allowed:
+            raise HTTPException(status_code=400, detail=f"role must be one of {allowed}")
+        updates["role"] = data["role"]
+
+    if "business_access" in data:
+        if not isinstance(data["business_access"], list):
+            raise HTTPException(status_code=400, detail="business_access must be a list")
+        updates["business_access"] = data["business_access"]
+
+    if len(updates) == 1:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    updated = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {"message": "User updated", "user": updated}
+
+
 # ============= ANALYTICS ROUTES =============
 @api_router.get("/analytics/dashboard")
 async def get_dashboard_stats(
@@ -911,6 +963,8 @@ order_management_routes.set_db(db)
 import sse_routes
 sse_routes.set_db(db)
 additional_routes.set_db(db)
+import location_routes
+location_routes.set_db(db)
 
 # Include routers
 app.include_router(ecommerce_routes.router)
@@ -922,11 +976,12 @@ app.include_router(additional_routes.loyalty_router)
 app.include_router(additional_routes.subscriptions_router)
 app.include_router(order_management_routes.router)
 app.include_router(sse_routes.router)
+app.include_router(location_routes.router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -936,8 +991,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger(__name__)
-
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()

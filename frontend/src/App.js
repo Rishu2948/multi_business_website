@@ -9,7 +9,6 @@ import './App.css';
 // Pages
 import Landing from './pages/Landing';
 import Login from './pages/Login';
-import AuthCallback from './pages/AuthCallback';
 import Businesses from './pages/Businesses';
 import ProductCatalog from './pages/ProductCatalog';
 import BusinessHome from './pages/BusinessHome';
@@ -22,6 +21,7 @@ import ReviewsPage from './pages/ReviewsPage';
 import LoyaltyPage from './pages/LoyaltyPage';
 import SubscriptionsPage from './pages/SubscriptionsPage';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import UserManagementPage from './pages/UserManagementPage';
 import BusinessAdminDashboard from './pages/BusinessAdminDashboard';
 import StaffDashboard from './pages/StaffDashboard';
 import AdminOrdersDashboard from './pages/AdminOrdersDashboard';
@@ -33,16 +33,12 @@ function AppRouter() {
   
   // Check URL fragment (not query params) for session_id
   // CRITICAL: This must run synchronously during render before useEffect
-  if (location.hash?.includes('session_id=')) {
-    return <AuthCallback />;
-  }
   
   return (
     <Routes>
       {/* Public Routes */}
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/auth-callback" element={<AuthCallback />} />
       <Route path="/businesses" element={<Businesses />} />
       <Route path="/catalog/:businessId" element={<ProductCatalog />} />
       
@@ -92,6 +88,14 @@ function AppRouter() {
         element={
           <ProtectedRoute allowedRoles={['super_admin']}>
             <SuperAdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/super-admin/users"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin']}>
+            <UserManagementPage />
           </ProtectedRoute>
         }
       />

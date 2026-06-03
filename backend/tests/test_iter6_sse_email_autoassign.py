@@ -13,7 +13,7 @@ import uuid
 import requests
 import pytest
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://multi-vendor-suite.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8000").rstrip("/")
 ADMIN_TOKEN = "test_session_admin_001"
 CUSTOMER_TOKEN = "test_session_customer_001"
 DELIVERY_TOKEN = "test_session_delivery_001"
