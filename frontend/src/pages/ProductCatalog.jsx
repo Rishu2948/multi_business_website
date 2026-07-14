@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useState, useRef } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Marquee from 'react-fast-marquee';
+import useSWR, { mutate } from 'swr';
 import BakeryNavbar from '../components/common/BakeryNavbar';
 import BakeryFooter from '../components/common/BakeryFooter';
+import ChatWidget from '../components/chatbot/ChatWidget';
 import { useCart } from '../context/CartContext';
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed';
+import { useChatContext } from '../context/ChatContext';
 import apiClient from '../utils/api';
 import { Loader2, Package, ShoppingCart, Star, TrendingUp, Clock, Sparkles } from 'lucide-react';
 
@@ -90,8 +93,10 @@ const SectionHeader = ({ icon: Icon, title, subtitle, iconBg = 'bg-[#4A3B32]' })
 
 const ProductCatalog = () => {
   const { businessId } = useParams();
+  const [searchParams] = useSearchParams();
   const { addToCart, loading: cartLoading } = useCart();
   const { viewedIds, trackView } = useRecentlyViewed();
+  const { recommendations } = useChatContext();
   const [business, setBusiness] = useState(null);
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
@@ -99,21 +104,108 @@ const ProductCatalog = () => {
   const [recStrategy, setRecStrategy] = useState('');
   const [recentProducts, setRecentProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const productRefs = useRef({});
+
+  // Read chatbot URL params
+  const highlightProductId = searchParams.get('product');
+  const urlKeyword = searchParams.get('keyword');
+  const urlFlavor = searchParams.get('flavor');
+  const urlOccasion = searchParams.get('occasion');
+  const urlCategory = searchParams.get('category');
+  const urlPriceMin = searchParams.get('price_min');
+  const urlPriceMax = searchParams.get('price_max');
+
+  // Filter products based on URL params from chatbot
+  const filteredProducts = products.filter(p => {
+    if (urlKeyword) {
+      // Split multi-word keywords and match ANY word against name, description, or attributes
+      const words = urlKeyword.toLowerCase().split(/\s+/).filter(Boolean);
+      const searchText = [
+        p.product_name,
+        p.description,
+        p.attributes?.flavor,
+        p.attributes?.cake_type,
+        p.attributes?.fabric,
+        p.attributes?.metal_type,
+        p.attributes?.design,
+        p.category_id,
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      const anyWordMatches = words.some(w => searchText.includes(w));
+      if (!anyWordMatches) return false;
+    }
+    if (urlFlavor) {
+      const fl = urlFlavor.toLowerCase();
+      const searchText = [
+        p.product_name,
+        p.attributes?.flavor,
+        p.attributes?.flavour,
+        p.description,
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!searchText.includes(fl)) return false;
+    }
+    if (urlOccasion) {
+      const occ = urlOccasion.toLowerCase();
+      const attrOcc = [p.attributes?.occasion, p.description].filter(Boolean).join(' ').toLowerCase();
+      if (!attrOcc.includes(occ)) return false;
+    }
+    if (urlCategory) {
+      const cat = urlCategory.toLowerCase();
+      const catText = [p.category_id, p.product_name, p.description].filter(Boolean).join(' ').toLowerCase();
+      if (!catText.includes(cat)) return false;
+    }
+    if (urlPriceMin && p.base_price < parseFloat(urlPriceMin)) return false;
+    if (urlPriceMax && p.base_price > parseFloat(urlPriceMax)) return false;
+    return true;
+  });
+
+  const displayProducts = (urlKeyword || urlFlavor || urlOccasion || urlCategory || urlPriceMin || urlPriceMax)
+    ? filteredProducts
+    : products;
+
+  // SWR fetcher using apiClient
+  const recFetcher = (url) => apiClient.get(url).then(res => res.data);
+  const { data: recData } = useSWR(
+    `/products/recommended/${businessId}?limit=4`,
+    recFetcher,
+    { revalidateOnFocus: false, dedupingInterval: 600000 }
+  );
+
+  // Seed the SWR cache at login when recommendations are available from ChatContext
+  useEffect(() => {
+    if (recommendations && recommendations.length > 0) {
+      mutate(
+        `/products/recommended/${businessId}?limit=4`,
+        { recommended: recommendations.map(id => ({ product_id: id })), strategy: 'personalized' },
+        false  // don't revalidate — we trust the login-time data
+      );
+    }
+  }, [recommendations, businessId]);
+
+  // Derive recommended and recStrategy from SWR data
+  useEffect(() => {
+    if (recData) {
+      setRecommended(recData.recommended || []);
+      setRecStrategy(recData.strategy || '');
+    }
+  }, [recData]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [businessRes, productsRes, trendingRes, recRes] = await Promise.all([
+        // When chatbot filter params are present, fetch all products (up to 200)
+        // so the client-side filter has the full catalog to search through
+        const hasFilterParams = urlKeyword || urlFlavor || urlOccasion || urlCategory || urlPriceMin || urlPriceMax;
+        const productLimit = hasFilterParams ? 200 : 50;
+
+        const [businessRes, productsRes, trendingRes] = await Promise.all([
           apiClient.get(`/businesses/${businessId}`),
-          apiClient.get(`/products?business_id=${businessId}`),
-          apiClient.get(`/products/trending/${businessId}?limit=4`),
-          apiClient.get(`/products/recommended/${businessId}?limit=4`)
+          apiClient.get(`/products?business_id=${businessId}&limit=${productLimit}`),
+          apiClient.get(`/products/trending/${businessId}?limit=4`)
         ]);
         setBusiness(businessRes.data);
         setProducts(productsRes.data.products);
         setTrending(trendingRes.data.trending);
-        setRecommended(recRes.data.recommended);
-        setRecStrategy(recRes.data.strategy);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -121,7 +213,7 @@ const ProductCatalog = () => {
       }
     };
     fetchData();
-  }, [businessId]);
+  }, [businessId, urlKeyword, urlFlavor, urlOccasion, urlCategory, urlPriceMin, urlPriceMax]);
 
   useEffect(() => {
     if (products.length > 0 && viewedIds.length > 0) {
@@ -135,6 +227,20 @@ const ProductCatalog = () => {
     trackView(productId);
     apiClient.post('/products/track-view', { product_id: productId, business_id: businessId }).catch(() => {});
   };
+
+  // Scroll to and highlight a specific product when ?product= is in URL
+  useEffect(() => {
+    if (!highlightProductId || loading) return;
+    const tryScroll = () => {
+      const el = productRefs.current[highlightProductId];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+    // Small delay to let the DOM render first
+    const t = setTimeout(tryScroll, 300);
+    return () => clearTimeout(t);
+  }, [highlightProductId, loading, displayProducts]);
 
   const strategyLabels = {
     category_match: 'Based on your interests',
@@ -250,8 +356,21 @@ const ProductCatalog = () => {
         <div className="max-w-7xl mx-auto px-6 md:px-12">
           <div className="flex items-end justify-between mb-14">
             <div>
-              <h2 className="font-serif text-3xl md:text-4xl text-[#2C2420] mb-2">All Products</h2>
-              <p className="text-sm text-[#786A60]">{products.length} items in our collection</p>
+              <h2 className="font-serif text-3xl md:text-4xl text-[#2C2420] mb-2">
+                {displayProducts.length < products.length ? 'Filtered Results' : 'All Products'}
+              </h2>
+              <p className="text-sm text-[#786A60]">{displayProducts.length} items{displayProducts.length < products.length ? ` of ${products.length}` : ''}</p>
+              {/* Active filter banner from chatbot URL params */}
+              {(urlKeyword || urlFlavor || urlOccasion || urlCategory) && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {urlKeyword && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">"{urlKeyword}"</span>}
+                  {urlFlavor && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">Flavor: {urlFlavor}</span>}
+                  {urlOccasion && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">Occasion: {urlOccasion}</span>}
+                  {urlCategory && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">Category: {urlCategory}</span>}
+                  {(urlPriceMin || urlPriceMax) && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">₹{urlPriceMin || '0'} – ₹{urlPriceMax || '∞'}</span>}
+                  <Link to={`/business/${businessId}/catalog`} className="text-xs text-[#786A60] underline px-2 py-1 hover:text-[#4A3B32]">Clear filters</Link>
+                </div>
+              )}
             </div>
             {businessId === 'whisked_words' && (
               <Link
@@ -264,22 +383,24 @@ const ProductCatalog = () => {
             )}
           </div>
 
-          {products.length === 0 ? (
+          {displayProducts.length === 0 ? (
             <div className="text-center py-32">
               <Package size={48} className="mx-auto text-[#786A60] mb-4" strokeWidth={1} />
-              <p className="text-[#786A60] font-serif text-xl">No products available yet.</p>
+              <p className="text-[#786A60] font-serif text-xl">No products match your search.</p>
+              <Link to={`/business/${businessId}/catalog`} className="mt-4 inline-block text-sm text-[#4A3B32] underline">Show all products</Link>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10 lg:gap-16">
-              {products.map((product, i) => (
+              {displayProducts.map((product, i) => (
                 <motion.div
                   key={product.product_id}
+                  ref={el => { productRefs.current[product.product_id] = el; }}
                   variants={fadeUp}
                   custom={i}
                   initial="hidden"
                   whileInView="visible"
                   viewport={{ once: true }}
-                  className="group"
+                  className={`group ${highlightProductId === product.product_id ? 'ring-2 ring-[#D4A373] ring-offset-4' : ''}`}
                   data-testid={`product-card-${product.product_id}`}
                 >
                   {/* Product Image - Editorial */}
@@ -329,6 +450,7 @@ const ProductCatalog = () => {
         </div>
       </main>
 
+      <ChatWidget businessId={businessId} businessName={business?.business_name || ''} />
       <BakeryFooter />
     </div>
   );

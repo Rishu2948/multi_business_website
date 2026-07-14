@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useChatContext } from '../context/ChatContext';
 import { GoogleLogin } from '@react-oauth/google';
 import apiClient from '../utils/api';
 import { toast } from 'sonner';
@@ -9,6 +10,7 @@ const Login = () => {
   console.log("Client ID loaded:", process.env.REACT_APP_GOOGLE_CLIENT_ID);
   const navigate = useNavigate();
   const { isAuthenticated, user, login } = useAuth();
+  const { setChatLoginData } = useChatContext();
 
   useEffect(() => {
     // Redirect if already authenticated
@@ -33,6 +35,7 @@ const Login = () => {
       const res = await apiClient.post('/auth/google', { token: credentialResponse.credential });
       const userData = res.data.user;
       login(userData);
+      setChatLoginData(res.data);  // populates recommendations, preference_summary, is_prime
       toast.success(res.data.message);
       
       if (userData.role === 'super_admin') {
