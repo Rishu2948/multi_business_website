@@ -1,0 +1,229 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack 3 - S3 buckets for the SRE Copilot Agent system.
+  Creates three buckets:
+    • sre-copilot-datalake-{AccountId}  — Delta Lake backup / KB sync staging
+    • sre-copilot-kb-{AccountId}        — Bedrock Knowledge Base runbook documents
+                                          (versioning enabled, 365-day lifecycle)
+    • sre-copilot-ui-{AccountId}        — React Chat UI static website
+                                          (static hosting, public read policy)
+  All buckets are in the same region as this stack to satisfy Req 5.5 (same
+  region as the Bedrock Agent) and remain within the 5 GB S3 free-tier limit
+  (Req 9.4).
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Logical environment name; used as a resource name prefix/tag.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # --------------------------------------------------------------------------
+  # DataLakeBucket
+  # Name: sre-copilot-datalake-{AccountId}
+  #
+  # Stores Delta Lake table exports pushed from Databricks Community Edition
+  # for backup purposes and as a staging area for optional KB sync workflows.
+  # No versioning required (Delta log provides its own history).
+  # No public access — accessed only by Lambda execution roles and pipeline
+  # scripts via IAM.
+  #
+  # Requirement 9.4: Combined storage across all buckets SHALL NOT exceed 5 GB.
+  # --------------------------------------------------------------------------
+  DataLakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "sre-copilot-datalake-${AWS::AccountId}"
+      # Block all public access — Delta Lake data must never be publicly readable
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Server-side encryption at rest (SSE-S3, free tier)
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      # Lifecycle: expire objects after 90 days to control costs within
+      # Req 9.4's 5 GB free-tier storage limit
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldDeltaExports
+            Status: Enabled
+            ExpirationInDays: 90
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: delta-lake-backup
+
+  # --------------------------------------------------------------------------
+  # KnowledgeBaseBucket
+  # Name: sre-copilot-kb-{AccountId}
+  #
+  # Stores runbook and postmortem Markdown documents for the Bedrock Knowledge
+  # Base (sre-runbooks-kb). The Bedrock data source syncs from the
+  # s3://sre-copilot-kb-{AccountId}/runbooks/ prefix.
+  #
+  # Requirement 5.5: Must be in the same AWS region as the Bedrock Agent.
+  # Requirement 9.3: No OpenSearch Serverless — Bedrock uses this S3 bucket
+  #                  with its own managed FAISS-backed vector store.
+  # Requirement 9.4: Bounded by ≤ 1,000 documents and ≤ 2 GB raw data.
+  # --------------------------------------------------------------------------
+  KnowledgeBaseBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "sre-copilot-kb-${AWS::AccountId}"
+      # Block all public access — KB documents contain internal runbook details
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Versioning: required for Bedrock KB data source consistency;
+      # enables rollback if a bad document is accidentally synced
+      VersioningConfiguration:
+        Status: Enabled
+      # Server-side encryption at rest
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      # Lifecycle: expire current objects after 365 days (Req per design);
+      # also expire noncurrent versions after 30 days to limit version storage
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireRunbooksAfter365Days
+            Status: Enabled
+            ExpirationInDays: 365
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: bedrock-knowledge-base
+
+  # --------------------------------------------------------------------------
+  # UiBucket
+  # Name: sre-copilot-ui-{AccountId}
+  #
+  # Hosts the React Chat UI as a static website. Built artifacts from
+  # `npm run build` (Vite) are uploaded here after each deployment.
+  # The S3 website endpoint URL is exported and used by stack 05-lambda-chat
+  # to scope the CORS AllowOrigins on the API Gateway.
+  #
+  # Requirement 6.8: React UI must be serveable from S3 static website hosting.
+  # Requirement 6.9: Backend API must allow CORS from this domain.
+  # --------------------------------------------------------------------------
+  UiBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "sre-copilot-ui-${AWS::AccountId}"
+      # Static website hosting: index.html for both the root and all 404
+      # paths (client-side routing via React Router requires this)
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      # Public access must be unblocked for S3 static website hosting to work.
+      # The bucket policy below restricts access to GetObject only.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: static-website-hosting
+
+  # --------------------------------------------------------------------------
+  # UiBucketPublicReadPolicy
+  # Grants s3:GetObject to the public (Principal: "*") on the UI bucket so
+  # that browsers can fetch the React application bundle and static assets.
+  # Scoped to the UiBucket only; does not affect other buckets.
+  # --------------------------------------------------------------------------
+  UiBucketPublicReadPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UiBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${UiBucket.Arn}/*"
+
+# ---------------------------------------------------------------------------
+# Outputs / Exports
+# ---------------------------------------------------------------------------
+Outputs:
+
+  DataLakeBucketName:
+    Description: >
+      Name of the Delta Lake backup / KB sync staging S3 bucket.
+      Used by deploy.sh and sync scripts that push Delta exports.
+    Value: !Ref DataLakeBucket
+    Export:
+      Name: DataLakeBucketName
+
+  KnowledgeBaseBucketName:
+    Description: >
+      Name of the Bedrock Knowledge Base document source S3 bucket.
+      Used by scripts/upload_runbooks.sh and referenced in stack 06-bedrock-kb
+      as the S3 data source for the RunbooksKnowledgeBase.
+    Value: !Ref KnowledgeBaseBucket
+    Export:
+      Name: KnowledgeBaseBucketName
+
+  KnowledgeBaseBucketArn:
+    Description: >
+      ARN of the Bedrock Knowledge Base S3 bucket.
+      Imported by stack 06-bedrock-kb to configure the S3 data source and
+      by stack 01-iam-roles (if updated) to scope Bedrock KB access policies.
+    Value: !GetAtt KnowledgeBaseBucket.Arn
+    Export:
+      Name: KnowledgeBaseBucketArn
+
+  UiBucketName:
+    Description: >
+      Name of the React Chat UI static website S3 bucket.
+      Used by deploy.sh to upload the Vite build output: aws s3 sync dist/ s3://${UiBucketName}/
+    Value: !Ref UiBucket
+    Export:
+      Name: UiBucketName
+
+  UiBucketWebsiteUrl:
+    Description: >
+      S3 static website endpoint URL for the React Chat UI.
+      Format: http://{bucket}.s3-website-{region}.amazonaws.com
+      Imported by stack 05-lambda-chat to configure CORS AllowOrigins on the
+      API Gateway HTTP API so the React UI can call POST /chat.
+    Value: !GetAtt UiBucket.WebsiteURL
+    Export:
+      Name: UiBucketWebsiteUrl

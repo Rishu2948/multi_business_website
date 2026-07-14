@@ -1,0 +1,410 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack 6 - Bedrock Knowledge Base for the SRE Copilot Agent.
+  Creates:
+    • RunbooksVectorBucket   — S3 Vectors bucket used as the vector store backend
+                               (no OpenSearch Serverless collection — satisfies Req 9.3)
+    • RunbooksVectorIndex    — Vector index inside the bucket; 1024 dimensions (Titan v2),
+                               cosine similarity metric
+    • KnowledgeBaseRole     — IAM role allowing Bedrock to read the KB S3 bucket,
+                               invoke Titan Embeddings v2, and access the vector index
+    • RunbooksKnowledgeBase  — Bedrock Knowledge Base with storageConfiguration type
+                               S3_VECTORS; embedding model: amazon.titan-embed-text-v2:0
+    • RunbooksDataSource     — S3 data source pointing to the runbooks/ prefix of the
+                               sre-copilot-kb-{AccountId} bucket; HIERARCHICAL chunking
+                               with maxParentTokenSize 1500, maxChildTokenSize 300
+  Imports: KnowledgeBaseBucketArn, KnowledgeBaseBucketName from stack sre-s3-buckets
+  Exports: KnowledgeBaseId, DataSourceId
+
+  Requirements addressed:
+    5.1 — Bedrock KB backed by S3 using Titan Embeddings v2; Bedrock handles chunking
+          and embedding; S3 Vectors provides the vector store (no manual provisioning)
+    5.5 — KB bucket and vector bucket are in the same region as this stack and the Agent
+    9.3 — No OpenSearch Serverless collection; S3 Vectors is used as the vector store
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Logical environment name; used as a resource name prefix/tag.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # --------------------------------------------------------------------------
+  # RunbooksVectorBucket
+  # An Amazon S3 Vectors bucket that serves as the vector store backend for
+  # the RunbooksKnowledgeBase. Bedrock writes and queries embeddings here
+  # automatically during KB sync (ingestion) and retrieval calls.
+  #
+  # S3 Vectors is a native S3 feature — creating this bucket does NOT provision
+  # an OpenSearch Serverless collection or any other separately billed service.
+  # This satisfies Requirement 9.3 (no OpenSearch Serverless).
+  #
+  # Requirement 5.5: Bucket is created in the same region as this stack,
+  # which is the same region as the Bedrock Agent (single-region stack).
+  # --------------------------------------------------------------------------
+  RunbooksVectorBucket:
+    Type: AWS::S3Vectors::VectorBucket
+    Properties:
+      VectorBucketName: !Sub "sre-copilot-vectors-${AWS::AccountId}"
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: bedrock-knowledge-base-vectors
+
+  # --------------------------------------------------------------------------
+  # RunbooksVectorIndex
+  # A vector index inside RunbooksVectorBucket. Configuration must match the
+  # embedding model dimensions and distance metric:
+  #
+  #   DataType:       float32  — Titan Embeddings v2 outputs 32-bit floats
+  #   Dimension:      1024     — amazon.titan-embed-text-v2:0 outputs 1024-d vectors
+  #   DistanceMetric: cosine   — Standard for semantic text similarity search
+  #
+  # The IndexName is referenced in the KnowledgeBaseRole policy (scoped to this
+  # specific index, not the whole bucket, for least-privilege).
+  #
+  # Requirement 5.1: Embedding model is Titan Embeddings v2 (1024 dimensions);
+  #                  index parameters are matched accordingly.
+  # --------------------------------------------------------------------------
+  RunbooksVectorIndex:
+    Type: AWS::S3Vectors::Index
+    DependsOn: RunbooksVectorBucket
+    Properties:
+      VectorBucketName: !Sub "sre-copilot-vectors-${AWS::AccountId}"
+      IndexName: "sre-runbooks-index"
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: bedrock-knowledge-base-vector-index
+
+  # --------------------------------------------------------------------------
+  # KnowledgeBaseRole
+  # IAM role assumed by the Amazon Bedrock service when indexing documents from
+  # S3 (ingestion) and when performing vector searches at query time.
+  #
+  # Required permissions per AWS Bedrock KB documentation:
+  #   • bedrock:InvokeModel          — Invoke Titan Embeddings v2 to embed chunks
+  #   • bedrock:ListFoundationModels,
+  #     bedrock:ListCustomModels     — Model discovery at KB creation time
+  #   • s3:GetObject                 — Read runbook documents from the KB bucket
+  #   • s3:ListBucket                — Enumerate the runbooks/ prefix during sync
+  #   • s3vectors:PutVectors,
+  #     s3vectors:GetVectors,
+  #     s3vectors:DeleteVectors,
+  #     s3vectors:QueryVectors,
+  #     s3vectors:GetIndex           — Read/write embeddings in the vector index
+  #
+  # The trust policy allows bedrock.amazonaws.com to assume this role, with
+  # aws:SourceAccount scoped to prevent confused-deputy attacks.
+  #
+  # Requirement 7.4 (implicit): Role permissions are scoped to the minimum
+  # required — bucket ARN-scoped S3 permissions, specific model ARN for Bedrock,
+  # and specific index ARN for S3 Vectors.
+  # --------------------------------------------------------------------------
+  KnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "sre-bedrock-kb-role-${EnvironmentName}"
+      Description: >
+        IAM role assumed by Amazon Bedrock to read runbook documents from S3,
+        generate embeddings using Titan Embeddings v2, and manage vectors in
+        the S3 Vectors index for the RunbooksKnowledgeBase.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowBedrockKbAssumeRole
+            Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                # Restrict to this account to prevent confused-deputy attacks
+                aws:SourceAccount: !Ref AWS::AccountId
+
+      Policies:
+        # ------------------------------------------------------------------
+        # BedrockModelAccess
+        # Allows Bedrock to invoke the Titan Embeddings v2 model to convert
+        # document chunks into 1024-dimensional vectors at ingestion time.
+        # Also grants model-listing access required at KB creation.
+        # ------------------------------------------------------------------
+        - PolicyName: BedrockModelAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListModels
+                Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:ListCustomModels
+                Resource: "*"
+              - Sid: InvokeTitanEmbedV2
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  # Scoped to Titan Embeddings v2 ARN; region-agnostic prefix "arn:aws:bedrock:"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+
+        # ------------------------------------------------------------------
+        # ReadRunbooksFromS3
+        # Allows Bedrock to read and enumerate runbook documents from the
+        # sre-copilot-kb-{AccountId} bucket. Scoped to this account's bucket
+        # to prevent cross-account data exfiltration.
+        # ------------------------------------------------------------------
+        - PolicyName: ReadRunbooksFromS3
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListRunbooksBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !ImportValue KnowledgeBaseBucketArn
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
+              - Sid: GetRunbookObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub
+                    - "${BucketArn}/*"
+                    - BucketArn: !ImportValue KnowledgeBaseBucketArn
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
+
+        # ------------------------------------------------------------------
+        # S3VectorsAccess
+        # Allows Bedrock to read and write embeddings in the RunbooksVectorIndex.
+        # Scoped to the specific vector index ARN (not the whole bucket).
+        # Permissions per AWS documentation for KB → S3 Vectors integration:
+        #   PutVectors   — store embeddings during ingestion
+        #   GetVectors   — retrieve stored vectors
+        #   DeleteVectors — remove vectors for deleted/updated documents
+        #   QueryVectors — semantic similarity search at retrieval time
+        #   GetIndex     — inspect index metadata
+        # ------------------------------------------------------------------
+        - PolicyName: S3VectorsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3VectorBucketReadAndWritePermission
+                Effect: Allow
+                Action:
+                  - s3vectors:PutVectors
+                  - s3vectors:GetVectors
+                  - s3vectors:DeleteVectors
+                  - s3vectors:QueryVectors
+                  - s3vectors:GetIndex
+                Resource:
+                  - !Sub "arn:aws:s3vectors:${AWS::Region}:${AWS::AccountId}:bucket/sre-copilot-vectors-${AWS::AccountId}/index/sre-runbooks-index"
+
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: bedrock-knowledge-base-role
+
+  # --------------------------------------------------------------------------
+  # RunbooksKnowledgeBase
+  # The Bedrock Knowledge Base that indexes SRE runbooks and postmortems stored
+  # in s3://sre-copilot-kb-{AccountId}/runbooks/.
+  #
+  # Embedding model: amazon.titan-embed-text-v2:0 (Titan Embeddings v2)
+  #   — Produces 1024-dimensional float32 vectors.
+  #   — On-demand invocation; no provisioned throughput required (Req 9.5).
+  #
+  # Storage configuration: S3_VECTORS
+  #   — Uses the RunbooksVectorBucket / RunbooksVectorIndex created above as the
+  #     vector store. S3 Vectors is a native S3 feature — no OpenSearch Serverless
+  #     collection is provisioned (satisfies Req 9.3).
+  #   — Bedrock manages all vector operations (put, query, delete) against the
+  #     index automatically during sync and retrieval.
+  #
+  # Requirement 5.1: S3 data source; Titan Embeddings v2; no external provisioning.
+  # Requirement 5.5: Stack is single-region; KB bucket is in the same region.
+  # Requirement 9.3: No OpenSearch Serverless collection; S3 Vectors is used.
+  # --------------------------------------------------------------------------
+  RunbooksKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    DependsOn:
+      - RunbooksVectorIndex
+      - KnowledgeBaseRole
+    Properties:
+      Name: !Sub "sre-runbooks-kb-${EnvironmentName}"
+      Description: >
+        Bedrock Knowledge Base indexing SRE runbooks and postmortems from
+        s3://sre-copilot-kb-{AccountId}/runbooks/. Uses Amazon S3 Vectors as
+        the vector store — no OpenSearch Serverless collection required.
+      RoleArn: !GetAtt KnowledgeBaseRole.Arn
+
+      # KnowledgeBaseConfiguration defines the type and embedding model.
+      # VECTOR type uses the configured embedding model to convert document
+      # chunks into vectors for semantic similarity search.
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          # Amazon Titan Embeddings v2 — 1024 dimensions, float32, on-demand.
+          # Matches the RunbooksVectorIndex Dimension and DataType properties.
+          EmbeddingModelArn: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+
+      # StorageConfiguration: S3_VECTORS
+      # Points at the RunbooksVectorBucket and RunbooksVectorIndex.
+      # Bedrock performs all vector read/write operations against this index.
+      StorageConfiguration:
+        Type: S3_VECTORS
+        S3VectorsConfiguration:
+          VectorBucketArn: !GetAtt RunbooksVectorBucket.VectorBucketArn
+          IndexArn: !GetAtt RunbooksVectorIndex.IndexArn
+
+      Tags:
+        Project: sre-copilot
+        Environment: !Ref EnvironmentName
+        ManagedBy: CloudFormation
+        Purpose: runbooks-knowledge-base
+
+  # --------------------------------------------------------------------------
+  # RunbooksDataSource
+  # S3 data source connecting RunbooksKnowledgeBase to the runbooks/ prefix of
+  # the sre-copilot-kb-{AccountId} bucket.
+  #
+  # S3 prefix: s3://sre-copilot-kb-{AccountId}/runbooks/
+  #   — Only documents under this prefix are indexed; other prefixes (if added
+  #     later) are excluded by the InclusionPrefixes filter.
+  #
+  # Chunking strategy: HIERARCHICAL
+  #   — Splits documents into parent chunks (≤ 1500 tokens) and child chunks
+  #     (≤ 300 tokens). Retrieval returns child chunks for precision while
+  #     preserving parent context for the Agent's final answer synthesis.
+  #   — maxParentTokenSize: 1500  (captures a full runbook section)
+  #   — maxChildTokenSize:  300   (granular retrieval unit)
+  #   — overlapTokens:      60    (20% overlap on child chunks to avoid cutting
+  #                                sentences at chunk boundaries)
+  #
+  # Sync: Manual (on-demand). scripts/sync_kb.py calls StartIngestionJob after
+  # new runbooks are uploaded to s3://sre-copilot-kb-{AccountId}/runbooks/.
+  #
+  # Requirement 5.1: Hierarchical chunking, parent 1500 / child 300 tokens.
+  # Requirement 5.2: Data source sync is manually triggerable.
+  # --------------------------------------------------------------------------
+  RunbooksDataSource:
+    Type: AWS::Bedrock::DataSource
+    DependsOn: RunbooksKnowledgeBase
+    Properties:
+      Name: !Sub "sre-runbooks-s3-source-${EnvironmentName}"
+      Description: >
+        S3 data source for the RunbooksKnowledgeBase. Indexes Markdown runbooks
+        and postmortems from the runbooks/ prefix of the KB bucket.
+        Sync is triggered manually via scripts/sync_kb.py (StartIngestionJob).
+      KnowledgeBaseId: !Ref RunbooksKnowledgeBase
+
+      # DataSourceConfiguration defines the source type and S3 location.
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          # ARN of the KB documents bucket (sre-copilot-kb-{AccountId}).
+          # Imported from stack 03-s3-buckets.
+          BucketArn: !ImportValue KnowledgeBaseBucketArn
+          # Restrict ingestion to the runbooks/ prefix only.
+          InclusionPrefixes:
+            - "runbooks/"
+
+      # VectorIngestionConfiguration controls how documents are chunked before
+      # embedding. HIERARCHICAL chunking balances retrieval precision (small
+      # child chunks) with contextual coherence (large parent chunks).
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: HIERARCHICAL
+          HierarchicalChunkingConfiguration:
+            # LevelConfigurations: first entry = parent, second = child.
+            # Parent chunks (≤ 1500 tokens) capture a full runbook section
+            # (~1100 words); child chunks (≤ 300 tokens) are the retrieval unit.
+            LevelConfigurations:
+              - MaxTokens: 1500   # Parent chunk
+              - MaxTokens: 300    # Child chunk
+            # 60-token overlap on child chunks (~45 words) reduces the risk of
+            # splitting sentences at chunk boundaries.
+            OverlapTokens: 60
+
+# ---------------------------------------------------------------------------
+# Outputs / Exports
+# ---------------------------------------------------------------------------
+Outputs:
+
+  KnowledgeBaseId:
+    Description: >
+      Bedrock Knowledge Base ID for sre-runbooks-kb.
+      Consumed by:
+        • Stack 07-bedrock-agent — AgentKbAssociation resource
+        • Stack 01-iam-roles    — KnowledgeBaseArn parameter update
+        • scripts/sync_kb.py   — StartIngestionJob API call
+    Value: !Ref RunbooksKnowledgeBase
+    Export:
+      Name: KnowledgeBaseId
+
+  KnowledgeBaseArn:
+    Description: >
+      Full ARN of the Bedrock Knowledge Base.
+      Import into stack 01-iam-roles (KnowledgeBaseArn parameter) to scope
+      the BedrockAgentRole's bedrock:Retrieve permission.
+    Value: !GetAtt RunbooksKnowledgeBase.KnowledgeBaseArn
+    Export:
+      Name: KnowledgeBaseArn
+
+  DataSourceId:
+    Description: >
+      Bedrock Data Source ID for the S3 runbooks data source.
+      Consumed by scripts/sync_kb.py (StartIngestionJob) to trigger
+      on-demand KB re-indexing after new runbooks are uploaded to S3.
+    Value: !GetAtt RunbooksDataSource.DataSourceId
+    Export:
+      Name: DataSourceId
+
+  KnowledgeBaseRoleArn:
+    Description: >
+      ARN of the IAM role assumed by Bedrock for KB indexing and retrieval.
+      Not imported by other stacks; useful for manual IAM auditing.
+    Value: !GetAtt KnowledgeBaseRole.Arn
+
+  RunbooksVectorBucketArn:
+    Description: >
+      ARN of the S3 Vectors bucket used as the Knowledge Base vector store.
+      No other stack needs to import this; exposed for operational visibility.
+    Value: !GetAtt RunbooksVectorBucket.VectorBucketArn
+
+  RunbooksVectorIndexArn:
+    Description: >
+      ARN of the S3 Vectors index that stores the runbook embeddings.
+      Useful for auditing or direct S3 Vectors API operations.
+    Value: !GetAtt RunbooksVectorIndex.IndexArn

@@ -1,0 +1,18 @@
+[
+  {
+    "ParameterKey": "EnvironmentName",
+    "ParameterValue": "prod"
+  },
+  {
+    "ParameterKey": "BedrockAgentRoleArnOverride",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "GoldQueryToolsFunctionArnOverride",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "KnowledgeBaseIdOverride",
+    "ParameterValue": ""
+  }
+]
