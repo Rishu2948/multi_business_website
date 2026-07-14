@@ -73,16 +73,18 @@ Or push to `main` after GitHub Actions is configured.
 
 Configure in **Settings → Secrets and variables → Actions** (no app API keys here):
 
-| Secret | Example |
-|--------|---------|
-| `AWS_ROLE_ARN` | IAM role for OIDC |
-| `AWS_REGION` | `us-east-1` |
-| `ECR_REPOSITORY_URI` | `123.dkr.ecr.us-east-1.amazonaws.com/multi-business-prod-api` |
-| `ECS_CLUSTER` | `multi-business-prod` |
-| `ECS_SERVICE` | `multi-business-prod-api` |
-| `S3_BUCKET` | from stack output |
-| `CLOUDFRONT_DISTRIBUTION_ID` | from stack output |
-| `FRONTEND_SECRET_NAME` | `multi-business/prod/frontend-build` |
+
+| Secret                       | Example                                                       |
+| ---------------------------- | ------------------------------------------------------------- |
+| `AWS_ROLE_ARN`               | IAM role for OIDC                                             |
+| `AWS_REGION`                 | `us-east-1`                                                   |
+| `ECR_REPOSITORY_URI`         | `123.dkr.ecr.us-east-1.amazonaws.com/multi-business-prod-api` |
+| `ECS_CLUSTER`                | `multi-business-prod`                                         |
+| `ECS_SERVICE`                | `multi-business-prod-api`                                     |
+| `S3_BUCKET`                  | from stack output                                             |
+| `CLOUDFRONT_DISTRIBUTION_ID` | from stack output                                             |
+| `FRONTEND_SECRET_NAME`       | `multi-business/prod/frontend-build`                          |
+
 
 ### GitHub OIDC trust (summary)
 
@@ -113,3 +115,4 @@ infrastructure/
   scripts/          # deploy-stack.sh, sync-secrets-to-aws.sh
   secrets/          # .env.*.example (committed), .env.* (gitignored)
 ```
+
