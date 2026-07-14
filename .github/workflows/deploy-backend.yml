@@ -1,0 +1,93 @@
+name: Deploy — Backend API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'Dockerfile'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: prod
+        type: choice
+        options: [dev, prod]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  DEPLOY_ENV: ${{ github.event.inputs.environment || 'prod' }}
+
+jobs:
+  test:
+    name: Run backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run tests
+        working-directory: backend
+        run: python -m pytest tests/ -v --tb=short
+        continue-on-error: false
+
+  deploy:
+    name: Build & Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_URI: ${{ secrets.BACKEND_ECR_REPOSITORY_URI }}
+        run: |
+          docker build \
+            -t "${ECR_URI}:latest" \
+            -t "${ECR_URI}:${GITHUB_SHA}" \
+            .
+          docker push "${ECR_URI}:latest"
+          docker push "${ECR_URI}:${GITHUB_SHA}"
+
+      - name: Deploy ECS service
+        run: |
+          aws ecs update-service \
+            --cluster "${{ secrets.BACKEND_ECS_CLUSTER }}" \
+            --service "${{ secrets.BACKEND_ECS_SERVICE }}" \
+            --force-new-deployment \
+            --region "${AWS_REGION}"
+          aws ecs wait services-stable \
+            --cluster "${{ secrets.BACKEND_ECS_CLUSTER }}" \
+            --services "${{ secrets.BACKEND_ECS_SERVICE }}" \
+            --region "${AWS_REGION}"
+
+      - name: Deployment summary
+        run: |
+          echo "### Backend Deployed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${GITHUB_SHA}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** \`${{ secrets.BACKEND_ECS_SERVICE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** \`${{ secrets.BACKEND_ECS_CLUSTER }}\`" >> $GITHUB_STEP_SUMMARY

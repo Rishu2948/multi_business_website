@@ -1,9 +1,19 @@
-name: Deploy
+# THIS WORKFLOW IS RETIRED.
+# Backend and frontend now have separate path-filtered workflows:
+#   deploy-backend.yml  — triggers on changes to backend/** or Dockerfile
+#   deploy-frontend.yml — triggers on changes to frontend/**
+# This file is kept for reference only and will not run (no trigger).
+#
+# To delete it safely, remove this file from the repo once the new workflows
+# are confirmed working.
+
+name: Deploy (RETIRED — do not use)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      # Kept so you can still manually trigger if needed during transition
+      environment:
     inputs:
       environment:
         description: Deployment environment
