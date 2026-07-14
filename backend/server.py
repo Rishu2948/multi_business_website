@@ -114,6 +114,113 @@ async def check_business_access(user: dict, business_id: str) -> bool:
     
     return False
 
+
+async def ensure_user_preferences_indexes() -> None:
+    """Create TTL and unique indexes on user_preferences if they don't already exist."""
+    # TTL index: MongoDB auto-deletes documents when expires_at is reached (expireAfterSeconds=0)
+    await db.user_preferences.create_index(
+        [("expires_at", 1)],
+        expireAfterSeconds=0,
+        background=True,
+        name="user_preferences_ttl_expires_at"
+    )
+    # Unique index on user_id so each user has at most one preferences document
+    await db.user_preferences.create_index(
+        [("user_id", 1)],
+        unique=True,
+        background=True,
+        name="user_preferences_unique_user_id"
+    )
+
+
+async def compute_preference_vector(user_id: str) -> dict:
+    """
+    Derive a preference_vector for a user from their product_views and orders.
+
+    Returns:
+        {
+            "top_flavors": [...],       # up to 3 most frequent flavors
+            "top_occasions": [...],     # up to 3 most frequent occasions
+            "price_range": {"min": ..., "max": ...}  # from ordered product prices
+        }
+    """
+    from collections import Counter
+
+    flavor_counter: Counter = Counter()
+    occasion_counter: Counter = Counter()
+    prices: list = []
+
+    # --- gather data from product_views (up to 20 most recent) ---
+    viewed = await db.product_views.find(
+        {"user_id": user_id},
+        {"_id": 0, "product_id": 1}
+    ).sort("last_viewed", -1).to_list(20)
+
+    viewed_product_ids = [v["product_id"] for v in viewed]
+    if viewed_product_ids:
+        viewed_products = await db.products.find(
+            {"product_id": {"$in": viewed_product_ids}},
+            {"_id": 0, "attributes": 1, "base_price": 1}
+        ).to_list(len(viewed_product_ids))
+
+        for p in viewed_products:
+            attrs = p.get("attributes", {})
+            if isinstance(attrs, dict):
+                flavor = attrs.get("flavor") or attrs.get("flavour")
+                if flavor:
+                    flavor_counter[str(flavor).lower()] += 1
+                occasion = attrs.get("occasion")
+                if occasion:
+                    occasion_counter[str(occasion).lower()] += 1
+            price = p.get("base_price")
+            if price is not None:
+                prices.append(float(price))
+
+    # --- gather data from orders (up to 10 most recent) ---
+    user_orders = await db.orders.find(
+        {"user_id": user_id},
+        {"_id": 0, "items": 1}
+    ).sort("created_at", -1).to_list(10)
+
+    ordered_product_ids = []
+    for order in user_orders:
+        for item in order.get("items", []):
+            ordered_product_ids.append(item["product_id"])
+
+    if ordered_product_ids:
+        ordered_products = await db.products.find(
+            {"product_id": {"$in": ordered_product_ids}},
+            {"_id": 0, "attributes": 1, "base_price": 1}
+        ).to_list(len(ordered_product_ids))
+
+        for p in ordered_products:
+            attrs = p.get("attributes", {})
+            if isinstance(attrs, dict):
+                flavor = attrs.get("flavor") or attrs.get("flavour")
+                if flavor:
+                    # Orders weighted 2x over views
+                    flavor_counter[str(flavor).lower()] += 2
+                occasion = attrs.get("occasion")
+                if occasion:
+                    occasion_counter[str(occasion).lower()] += 2
+            price = p.get("base_price")
+            if price is not None:
+                prices.append(float(price))
+
+    top_flavors = [f for f, _ in flavor_counter.most_common(3)]
+    top_occasions = [o for o, _ in occasion_counter.most_common(3)]
+
+    if prices:
+        price_range = {"min": min(prices), "max": max(prices)}
+    else:
+        price_range = {"min": 0, "max": 0}
+
+    return {
+        "top_flavors": top_flavors,
+        "top_occasions": top_occasions,
+        "price_range": price_range,
+    }
+
 @api_router.post("/auth/google")
 async def google_login(request: Request, response: Response):
     """Verify Google ID token and create session"""
@@ -179,7 +286,56 @@ async def google_login(request: Request, response: Response):
             path="/",
             max_age=7 * 24 * 60 * 60,
         )
-        
+
+        # --- Compute preference vector and recommended products for this user ---
+        preference_vector = await compute_preference_vector(user["user_id"])
+
+        # Determine which business to pull recommendations from.
+        # Use the most recently viewed business, falling back to the first business
+        # the user has access to, or any active business if neither is available.
+        rec_business_id = None
+        recent_view = await db.product_views.find_one(
+            {"user_id": user["user_id"]},
+            {"_id": 0, "business_id": 1},
+            sort=[("last_viewed", -1)]
+        )
+        if recent_view:
+            rec_business_id = recent_view.get("business_id")
+
+        if not rec_business_id:
+            # Fall back to first business in user's access list
+            accesses = user.get("business_access", [])
+            if accesses:
+                rec_business_id = accesses[0]["business_id"]
+
+        if not rec_business_id:
+            # Fall back to any active business
+            any_biz = await db.businesses.find_one({"status": "active"}, {"_id": 0, "business_id": 1})
+            if any_biz:
+                rec_business_id = any_biz["business_id"]
+
+        recommended_product_ids: list = []
+        if rec_business_id:
+            top_products = await db.products.find(
+                {"business_id": rec_business_id, "status": "active"},
+                {"_id": 0, "product_id": 1, "avg_rating": 1}
+            ).sort("avg_rating", -1).limit(6).to_list(6)
+            recommended_product_ids = [p["product_id"] for p in top_products]
+
+        # Upsert the user_preferences document (TTL-managed by MongoDB, expires in 12 h)
+        now_utc = datetime.now(timezone.utc)
+        await db.user_preferences.replace_one(
+            {"user_id": user["user_id"]},
+            {
+                "user_id": user["user_id"],
+                "recommended_product_ids": recommended_product_ids,
+                "preference_vector": preference_vector,
+                "computed_at": now_utc.isoformat(),
+                "expires_at": (now_utc + timedelta(hours=12)),
+            },
+            upsert=True
+        )
+
         return {
             "user": {
                 "user_id": user["user_id"],
@@ -187,8 +343,11 @@ async def google_login(request: Request, response: Response):
                 "name": user["name"],
                 "picture": user["picture"],
                 "role": user["role"],
-                "business_access": user.get("business_access", [])
+                "business_access": user.get("business_access", []),
+                "is_prime": user.get("is_prime", False)
             },
+            "recommendations": recommended_product_ids,
+            "preference_summary": preference_vector,
             "message": "Login successful"
         }
     except ValueError as e:
@@ -208,7 +367,8 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         "picture": current_user["picture"],
         "role": current_user["role"],
         "business_access": current_user.get("business_access", []),
-        "status": current_user["status"]
+        "status": current_user["status"],
+        "is_prime": current_user.get("is_prime", False)
     }
 
 @api_router.post("/auth/logout")
@@ -602,6 +762,15 @@ async def update_product(
         {"product_id": product_id},
         {"$set": data}
     )
+
+    # Best-effort cache bust — fire and forget, swallow all errors
+    try:
+        chatbot_url = os.environ.get("CHATBOT_SERVICE_URL", "http://localhost:8001")
+        business_id = product["business_id"]
+        async with httpx.AsyncClient(timeout=2.0) as client_http:
+            await client_http.delete(f"{chatbot_url}/cache/business/{business_id}")
+    except Exception:
+        pass
     
     return {"message": "Product updated successfully"}
 
@@ -623,6 +792,15 @@ async def delete_product(
         {"product_id": product_id},
         {"$set": {"status": "inactive", "updated_at": datetime.now(timezone.utc)}}
     )
+
+    # Best-effort cache bust — fire and forget, swallow all errors
+    try:
+        chatbot_url = os.environ.get("CHATBOT_SERVICE_URL", "http://localhost:8001")
+        business_id = product["business_id"]
+        async with httpx.AsyncClient(timeout=2.0) as client_http:
+            await client_http.delete(f"{chatbot_url}/cache/business/{business_id}")
+    except Exception:
+        pass
     
     return {"message": "Product deleted successfully"}
 
@@ -994,3 +1172,7 @@ logging.basicConfig(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+@app.on_event("startup")
+async def startup_event():
+    await ensure_user_preferences_indexes()
