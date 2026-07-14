@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack 4 - Lambda tools layer and Gold Query function for the SRE Copilot Agent.
+  Creates:
+    • DatabricksLayer  — Lambda layer containing databricks-sql-connector and deps,
+                         built from lambda/sre_gold_query_tools/layer/python
+    • GoldQueryToolsFunction — Python 3.12, 256 MB, 60s timeout; Action Group handler
+                               that routes Bedrock function calls to Gold table queries
+    • BedrockInvokePermission — resource-based permission allowing bedrock.amazonaws.com
+                                to call lambda:InvokeFunction on the function
+  Exports: GoldQueryToolsFunctionArn (consumed by stacks 01 and 07).
+
+  Requirement 9.2: Lambda memory ≤ 256 MB to stay within 400K GB-s/month free tier.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Logical environment name; used as a resource name prefix/tag.
+
+  DatabricksHost:
+    Type: String
+    Description: >
+      Databricks Community Edition workspace hostname, e.g.
+      "dbc-xxxxxxxx-xxxx.cloud.databricks.com". Non-secret; safe to embed in
+      an environment variable. The actual PAT is read from Secrets Manager
+      at runtime.
+
+  DatabricksHttpPath:
+    Type: String
+    Description: >
+      HTTP path for the Databricks SQL Warehouse, e.g.
+      "/sql/1.0/warehouses/<id>". Obtained from the workspace UI under
+      SQL Warehouses → Connection Details. Non-secret.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # --------------------------------------------------------------------------
+  # DatabricksLayer
+  # A Lambda Layer that packages the databricks-sql-connector and its
+  # runtime dependencies (pyarrow, thrift, etc.) so they are available to
+  # GoldQueryToolsFunction without inflating the function deployment package.
+  #
+  # Build procedure (run before deploying this stack):
+  #   make package-lambda
+  # This produces lambda/sre_gold_query_tools/layer/python/ with all packages
+  # installed, then zips the directory to lambda/sre_gold_query_tools/layer.zip.
+  # The stack references that zip via a local S3 upload done by deploy.sh.
+  #
+  # Compatible runtimes: python3.12 only (matches GoldQueryToolsFunction).
+  # --------------------------------------------------------------------------
+  DatabricksLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub "sre-databricks-layer-${EnvironmentName}"
+      Description: >
+        databricks-sql-connector and runtime dependencies for the
+        sre-gold-query-tools Lambda function (Python 3.12).
+      CompatibleRuntimes:
+        - python3.12
+      Content:
+        # deploy.sh uploads the layer zip to the deployment S3 bucket and
+        # passes the bucket/key as a CloudFormation parameter; for local
+        # development the zip can be referenced directly.
+        S3Bucket: !Sub "sre-copilot-deployments-${AWS::AccountId}"
+        S3Key: !Sub "lambda/sre_gold_query_tools/layer-${EnvironmentName}.zip"
+
+  # --------------------------------------------------------------------------
+  # GoldQueryToolsFunction
+  # The Bedrock Action Group Lambda that receives function-call events from
+  # the Bedrock Agent and routes them to one of five SQL query functions:
+  #   • query_service_health
+  #   • query_error_summary
+  #   • query_error_patterns
+  #   • query_historical_trend
+  #   • get_service_dependencies
+  #
+  # Runtime:    python3.12
+  # Memory:     256 MB  (Req 9.2 — free-tier compliant)
+  # Timeout:    60 s    (Databricks SQL Warehouse cold-start can take ~30s)
+  # Role:       LambdaToolsRoleArn imported from stack sre-iam-roles
+  # Layer:      DatabricksLayer (databricks-sql-connector)
+  #
+  # Environment variables (non-secret — Req 7.1):
+  #   DATABRICKS_HOST       — workspace hostname (from Parameter)
+  #   DATABRICKS_HTTP_PATH  — SQL Warehouse HTTP path (from Parameter)
+  #   AWS_REGION            — injected so boto3/SecretsManager client can be
+  #                           initialised without hard-coding a region; note
+  #                           that Lambda already exposes AWS_DEFAULT_REGION,
+  #                           but the handler references AWS_REGION explicitly.
+  #
+  # The Databricks PAT is NOT stored here; the handler retrieves it from
+  # Secrets Manager at cold start (sre/databricks-pat) and caches it in a
+  # module-level variable for warm invocations (Req 4.6).
+  # --------------------------------------------------------------------------
+  GoldQueryToolsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "sre-gold-query-tools-${EnvironmentName}"
+      Description: >
+        Bedrock Action Group handler: routes agent function calls to
+        Gold-layer Databricks SQL queries (service health, error summaries,
+        error patterns, historical trends, service dependencies).
+      Runtime: python3.12
+      Handler: handler.handler
+      MemorySize: 256
+      Timeout: 60
+      Role: !ImportValue LambdaToolsRoleArn
+      Layers:
+        - !Ref DatabricksLayer
+      Code:
+        S3Bucket: !Sub "sre-copilot-deployments-${AWS::AccountId}"
+        S3Key: !Sub "lambda/sre_gold_query_tools/function-${EnvironmentName}.zip"
+      Environment:
+        Variables:
+          DATABRICKS_HOST: !Ref DatabricksHost
+          DATABRICKS_HTTP_PATH: !Ref DatabricksHttpPath
+          # Explicitly expose the region so the handler can pass it to boto3
+          # without relying on the implicit AWS_DEFAULT_REGION variable.
+          AWS_REGION: !Ref AWS::Region
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: bedrock-action-group
+
+  # --------------------------------------------------------------------------
+  # GoldQueryToolsFunctionLogGroup
+  # Explicit log group so that CloudFormation manages the retention policy and
+  # the group is deleted cleanly on stack teardown. Without this resource
+  # Lambda auto-creates the group with indefinite retention.
+  # --------------------------------------------------------------------------
+  GoldQueryToolsFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/sre-gold-query-tools-${EnvironmentName}"
+      RetentionInDays: 14
+
+  # --------------------------------------------------------------------------
+  # BedrockInvokePermission
+  # Resource-based policy statement that grants bedrock.amazonaws.com the
+  # lambda:InvokeFunction action on GoldQueryToolsFunction.
+  #
+  # The SourceAccount condition restricts the permission to this AWS account
+  # to prevent confused-deputy privilege escalation (any Bedrock agent in any
+  # account could otherwise invoke the function).
+  #
+  # Bedrock Action Groups use this resource-based permission — the agent's
+  # IAM role (BedrockAgentRole) also has lambda:InvokeFunction in its policy
+  # for defence-in-depth, but this statement is required for the Action Group
+  # invocation path.
+  # --------------------------------------------------------------------------
+  BedrockInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt GoldQueryToolsFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+# ---------------------------------------------------------------------------
+# Outputs / Exports
+# ---------------------------------------------------------------------------
+Outputs:
+
+  GoldQueryToolsFunctionArn:
+    Description: >
+      ARN of the sre-gold-query-tools Lambda function.
+      Imported by:
+        • stack 01-iam-roles  — to scope BedrockAgentRole's lambda:InvokeFunction
+        • stack 07-bedrock-agent — as the actionGroupExecutor.lambda value for the
+          SreGoldToolsActionGroup Action Group resource.
+    Value: !GetAtt GoldQueryToolsFunction.Arn
+    Export:
+      Name: GoldQueryToolsFunctionArn
+
+  GoldQueryToolsFunctionName:
+    Description: >
+      Name of the sre-gold-query-tools Lambda function.
+      Useful for aws lambda invoke commands during local testing.
+    Value: !Ref GoldQueryToolsFunction
+
+  DatabricksLayerArn:
+    Description: >
+      ARN (including version) of the DatabricksLayer Lambda layer.
+      Useful for attaching the layer to additional functions or auditing
+      the deployed layer version.
+    Value: !Ref DatabricksLayer

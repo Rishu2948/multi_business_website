@@ -1,0 +1,484 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack 7 - Bedrock Agent for the SRE Copilot Agent system.
+  Creates:
+    • SreCopilotAgent        — Bedrock Agent using Claude 3.5 Sonnet v2, on-demand
+                               invocation, 30-minute idle session TTL, and the full
+                               investigation-protocol instruction text
+    • SreGoldToolsActionGroup — Action Group with OpenAPI function schema for all
+                               five Gold query tools; executor is the Lambda function
+                               exported by stack 04-lambda-tools
+    • AgentKbAssociation     — Associates the Bedrock Knowledge Base (stack 06) with
+                               the Agent so it can retrieve runbook context
+    • AgentAlias             — Named alias "live" pointing to the latest prepared
+                               agent version for stable invocation from the chat handler
+  Imports:
+    • BedrockAgentRoleArn       — from stack 01-iam-roles
+    • GoldQueryToolsFunctionArn — from stack 04-lambda-tools
+    • KnowledgeBaseId           — from stack 06-bedrock-kb
+  Exports: AgentId, AgentAliasId
+
+  Requirements addressed:
+    4.1 — Claude 3.5 Sonnet v2 on-demand (no provisioned throughput)
+    4.2 — Investigation-protocol system instruction: Gold tables primary, ordered steps
+    4.3 — Mandatory tool invocation order encoded in instructions
+    4.4 — All five Lambda tools registered in the Action Group function schema
+    4.8 — Data freshness disclosure instruction in the Agent prompt
+    9.5 — On-demand Bedrock invocation; no Provisioned Throughput
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Logical environment name; used as a resource name prefix/tag.
+
+  # The three values below can be passed as explicit parameters during
+  # multi-environment deployments. When deploying in a single-account setup
+  # where stacks share the same export namespace, the defaults (!ImportValue)
+  # are used automatically — just leave these parameters at their defaults.
+  #
+  # NOTE: CloudFormation does not support !ImportValue inside a Default field,
+  # so the import is done directly in the resource properties using the parameter
+  # pattern: if the parameter is left empty the !ImportValue is used instead.
+  # We achieve this by making the parameter optional with a sentinel default and
+  # using a Condition to select the right value.
+
+  BedrockAgentRoleArnOverride:
+    Type: String
+    Default: ""
+    Description: >
+      Override for BedrockAgentRoleArn. Leave empty to use the value exported
+      by stack 01-iam-roles via !ImportValue BedrockAgentRoleArn.
+
+  GoldQueryToolsFunctionArnOverride:
+    Type: String
+    Default: ""
+    Description: >
+      Override for GoldQueryToolsFunctionArn. Leave empty to use the value
+      exported by stack 04-lambda-tools via !ImportValue GoldQueryToolsFunctionArn.
+
+  KnowledgeBaseIdOverride:
+    Type: String
+    Default: ""
+    Description: >
+      Override for KnowledgeBaseId. Leave empty to use the value exported by
+      stack 06-bedrock-kb via !ImportValue KnowledgeBaseId.
+
+# ---------------------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------------------
+Conditions:
+  UseImportedAgentRoleArn:         !Equals [!Ref BedrockAgentRoleArnOverride, ""]
+  UseImportedFunctionArn:          !Equals [!Ref GoldQueryToolsFunctionArnOverride, ""]
+  UseImportedKnowledgeBaseId:      !Equals [!Ref KnowledgeBaseIdOverride, ""]
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # --------------------------------------------------------------------------
+  # SreCopilotAgent
+  # The Bedrock Agent that orchestrates investigation tool calls and synthesises
+  # natural-language answers for SRE questions.
+  #
+  # Foundation model: anthropic.claude-3-5-sonnet-20241022-v2:0
+  #   — On-demand invocation; no Provisioned Throughput (Req 9.5).
+  #   — Cross-region inference disabled (no "us." prefix); all invocations
+  #     stay in the deployment region.
+  #
+  # idleSessionTTLInSeconds: 1800 (30 minutes)
+  #   — Bedrock retains conversation context across API calls for up to 30
+  #     minutes of inactivity. The chat handler passes the same sessionId per
+  #     browser tab, so follow-up questions within a session are contextual.
+  #
+  # agentResourceRoleArn: imported from stack 01-iam-roles (or parameter override).
+  #   — The role must trust bedrock.amazonaws.com and grant lambda:InvokeFunction
+  #     and bedrock:Retrieve.
+  #
+  # instruction: the full investigation-protocol prompt (Req 4.2, 4.3, 4.8).
+  #   — Encodes primary data source priority, mandatory tool invocation order,
+  #     data freshness disclosure, response format rules, and scope limits.
+  #
+  # autoPrepare: true
+  #   — Instructs CloudFormation to automatically prepare (compile) the agent
+  #     after creation/update so it is ready for invocation via the alias.
+  #     Without this the agent stays in NOT_PREPARED state.
+  # --------------------------------------------------------------------------
+  SreCopilotAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub "sre-copilot-${EnvironmentName}"
+      Description: >
+        SRE Copilot AI assistant for the multi-service web application.
+        Orchestrates Gold table queries and KB runbook retrieval to answer
+        operational questions about service health, errors, and incidents.
+      FoundationModel: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+      AgentResourceRoleArn: !If
+        - UseImportedAgentRoleArn
+        - !ImportValue BedrockAgentRoleArn
+        - !Ref BedrockAgentRoleArnOverride
+      IdleSessionTTLInSeconds: 1800
+
+      # AutoPrepare causes Bedrock to call the PrepareAgent API automatically
+      # whenever the agent or its action groups are created or updated via
+      # CloudFormation. This avoids a separate manual PrepareAgent step and
+      # ensures the alias always points to a PREPARED agent version.
+      AutoPrepare: true
+
+      # ----------------------------------------------------------------
+      # Agent instruction (Req 4.2, 4.3, 4.8, 9.5)
+      # The instruction is the system prompt that shapes the agent's
+      # reasoning behaviour, tool invocation order, response format,
+      # and security scope limits.
+      #
+      # Key elements:
+      #   • Primary data source hierarchy (Gold > KB)
+      #   • Mandatory investigation protocol with ordered tool steps
+      #   • Data freshness disclosure (ISO 8601 UTC timestamp)
+      #   • Response format rules (Markdown, no secrets)
+      #   • Scope limits (operational questions only)
+      #   • Error payload handling (surface "data retrieval failed")
+      # ----------------------------------------------------------------
+      Instruction: |
+        You are an expert Site Reliability Engineer AI assistant for a multi-service web application.
+
+        ## Primary Data Sources
+        Gold tables (via Lambda tools) are your PRIMARY data source. Query them first for every investigation.
+        The Knowledge Base contains runbooks and postmortems — query it only when Gold data is empty or when the user explicitly asks about runbooks.
+
+        ## Investigation Protocol (MANDATORY ORDER)
+        1. ALWAYS start with query_service_health to get the current health score and status.
+        2. IF status is "degraded" or "critical": call query_error_summary for the last 6 hours.
+        3. IF error summaries show anomalies: call query_error_patterns to identify clustered issues.
+        4. IF patterns suggest cross-service impact: call get_service_dependencies.
+        5. IF historical context is needed: call query_historical_trend.
+        6. ONLY query the Knowledge Base when all Gold queries return empty results.
+
+        ## Response Format
+        - Always include data freshness timestamp (ISO 8601 UTC) at the end of every response.
+        - If data freshness is unavailable, state explicitly: "Data freshness: unavailable".
+        - Format responses with Markdown: bold for service names, bullet lists for error patterns, code blocks for error messages.
+        - Never include AWS account IDs, IP addresses, authentication tokens, or passwords in responses.
+        - When tool calls return error payloads (containing "error" key), inform the user that data retrieval failed for that service and suggest retrying.
+
+        ## Scope Limits
+        - Only answer questions about services, errors, health, and operational issues.
+        - Do not provide architectural recommendations beyond runbook guidance.
+        - If asked about credentials, secrets, or infrastructure internals, decline and redirect to the runbooks.
+
+      Tags:
+        Project: sre-copilot
+        Environment: !Ref EnvironmentName
+        ManagedBy: CloudFormation
+        Purpose: sre-investigation-agent
+
+  # --------------------------------------------------------------------------
+  # SreGoldToolsActionGroup
+  # Registers the five Gold query tool functions with the SreCopilotAgent.
+  #
+  # actionGroupExecutor.lambda: the sre-gold-query-tools Lambda ARN imported
+  #   from stack 04-lambda-tools (or parameter override). Bedrock invokes this
+  #   Lambda for every tool call and passes the Action Group v1.0 event schema.
+  #
+  # actionGroupState: ENABLED — the group is active immediately after agent
+  #   preparation; set to DISABLED to temporarily disable all tool calls.
+  #
+  # functionSchema: Bedrock uses a "FUNCTIONS" schema type (not a standard
+  #   OpenAPI YAML document) for Action Groups created via CloudFormation.
+  #   Each function definition includes a name, description, and parameters
+  #   map. The Agent uses these definitions to decide which tool to call and
+  #   to validate/extract the parameter values from the user message.
+  #
+  # Functions (Req 4.4):
+  #   1. query_service_health(service, region?)    — gold.service_health
+  #   2. query_error_summary(service, hours_back?, region?) — gold.error_summaries
+  #   3. query_error_patterns(service)             — gold.error_patterns
+  #   4. query_historical_trend(service, days_back?) — gold.error_summaries historical
+  #   5. get_service_dependencies(service)         — config.dependencies
+  # --------------------------------------------------------------------------
+  SreGoldToolsActionGroup:
+    Type: AWS::Bedrock::AgentActionGroup
+    DependsOn: SreCopilotAgent
+    Properties:
+      AgentId: !Ref SreCopilotAgent
+      # DRAFT refers to the working draft version; after AutoPrepare, the alias
+      # points to the latest prepared version which inherits this action group.
+      AgentVersion: DRAFT
+      ActionGroupName: "sre-gold-tools"
+      Description: >
+        Lambda-backed action group providing five tools for querying Gold-layer
+        Delta tables (service health, error summaries, error patterns, historical
+        trends, and service dependencies) via the sre-gold-query-tools Lambda.
+      ActionGroupState: ENABLED
+
+      # ActionGroupExecutor: points to the sre-gold-query-tools Lambda.
+      # Bedrock calls lambda:InvokeFunction on this ARN when executing tools.
+      ActionGroupExecutor:
+        Lambda: !If
+          - UseImportedFunctionArn
+          - !ImportValue GoldQueryToolsFunctionArn
+          - !Ref GoldQueryToolsFunctionArnOverride
+
+      # FunctionSchema: Bedrock "FUNCTIONS" schema type.
+      # Each Functions entry maps directly to a Python function in handler.py.
+      # Parameter types must be one of: string, number, integer, boolean, array.
+      # Required parameters have Required: true; optional parameters omit or set
+      # Required: false.
+      FunctionSchema:
+        Functions:
+
+          # ----------------------------------------------------------------
+          # query_service_health
+          # Queries gold.service_health for the latest health score and status
+          # of a named service. Called FIRST in every investigation (Req 4.3).
+          # Returns: overall_health (25|50|75|100), status (healthy|degraded|critical),
+          #          timestamp_hour, region.
+          # ----------------------------------------------------------------
+          - Name: query_service_health
+            Description: >
+              Query the gold.service_health table to get the current composite
+              health score (25, 50, 75, or 100) and status (healthy, degraded, or
+              critical) for a named service. This MUST be called first in every
+              investigation before any other tool. Returns the 12 most recent
+              health records ordered by timestamp descending.
+            Parameters:
+              service:
+                Description: >
+                  The name of the service to query (e.g., "checkout-service",
+                  "payment-service", "order-service"). Must match the service name
+                  stored in the Gold tables.
+                Type: string
+                Required: true
+              region:
+                Description: >
+                  Optional AWS region to filter results (e.g., "us-east-1",
+                  "us-west-2"). When omitted, results from all regions are returned.
+                Type: string
+                Required: false
+
+          # ----------------------------------------------------------------
+          # query_error_summary
+          # Queries gold.error_summaries for hourly error counts, anomaly flags,
+          # and natural-language summaries. Called when service status is
+          # degraded or critical (Req 4.3, step 2).
+          # Returns: total_errors, error_rate_vs_normal, is_anomalous,
+          #          top_error_types, trend_direction, nl_summary.
+          # ----------------------------------------------------------------
+          - Name: query_error_summary
+            Description: >
+              Query the gold.error_summaries table for hourly error counts,
+              anomaly flags (is_anomalous), error rate vs. 7-day normal baseline,
+              and a natural-language summary for a named service. Call this when
+              query_service_health reports a degraded or critical status. Returns
+              up to 12 rows for the requested time window, ordered by hour descending.
+            Parameters:
+              service:
+                Description: >
+                  The name of the service to query (e.g., "checkout-service").
+                Type: string
+                Required: true
+              hours_back:
+                Description: >
+                  Number of hours back from now to include in the query window.
+                  Defaults to 6 hours when not specified. Use larger values
+                  (e.g., 24, 48) when investigating longer-duration incidents.
+                Type: integer
+                Required: false
+              region:
+                Description: >
+                  Optional AWS region to filter results (e.g., "us-east-1").
+                  When omitted, results from all regions are returned.
+                Type: string
+                Required: false
+
+          # ----------------------------------------------------------------
+          # query_error_patterns
+          # Queries gold.error_patterns for clustered error signatures. Called
+          # when error summaries show anomalies (Req 4.3, step 3).
+          # Returns: error_type, error_category, occurrences_24h, trend_7d,
+          #          canonical_message, is_new_pattern, known_resolution.
+          # ----------------------------------------------------------------
+          - Name: query_error_patterns
+            Description: >
+              Query the gold.error_patterns table to retrieve the top 10 clustered
+              error signatures for a named service, ranked by 24-hour occurrence
+              count descending. Each pattern includes the error type, category,
+              occurrence count, 7-day trend ratio, a sample canonical message
+              (PII-redacted), and any known resolution from runbooks. Call this
+              when query_error_summary reports anomalous error counts.
+            Parameters:
+              service:
+                Description: >
+                  The name of the service to query (e.g., "checkout-service").
+                Type: string
+                Required: true
+
+          # ----------------------------------------------------------------
+          # query_historical_trend
+          # Queries gold.error_summaries over a longer historical window to
+          # provide trend context. Called when historical baseline is needed
+          # (Req 4.3, step 5).
+          # Returns: hourly error counts and trend direction for the past N days.
+          # ----------------------------------------------------------------
+          - Name: query_historical_trend
+            Description: >
+              Query the gold.error_summaries table for a historical view of hourly
+              error counts and trend direction over the past N days for a named
+              service. Use this to establish whether an ongoing incident is part
+              of a longer degradation trend or a sudden spike. Returns up to 12
+              rows ordered by hour descending.
+            Parameters:
+              service:
+                Description: >
+                  The name of the service to query (e.g., "checkout-service").
+                Type: string
+                Required: true
+              days_back:
+                Description: >
+                  Number of days back from now to include in the historical query.
+                  Defaults to 7 days when not specified.
+                Type: integer
+                Required: false
+
+          # ----------------------------------------------------------------
+          # get_service_dependencies
+          # Queries config.dependencies for upstream/downstream service relationships.
+          # Called when patterns suggest cross-service impact (Req 4.4).
+          # Returns: target_service, dependency_type (synchronous|async|database),
+          #          protocol (HTTP|gRPC|AMQP|JDBC).
+          # ----------------------------------------------------------------
+          - Name: get_service_dependencies
+            Description: >
+              Query the config.dependencies table to retrieve all known upstream
+              and downstream service dependencies for a named service. Use this
+              when error patterns suggest cross-service cascading failures or when
+              a service's errors may originate from a dependency. Returns all
+              dependency records for the specified source service.
+            Parameters:
+              service:
+                Description: >
+                  The name of the service whose dependencies to retrieve
+                  (e.g., "checkout-service"). Maps to the source_service column
+                  in config.dependencies.
+                Type: string
+                Required: true
+
+  # --------------------------------------------------------------------------
+  # AgentKbAssociation
+  # Associates the RunbooksKnowledgeBase (stack 06) with the SreCopilotAgent.
+  # Once associated, the Agent can issue Retrieve API calls to the KB during
+  # its orchestration loop to fetch relevant runbook chunks.
+  #
+  # knowledgeBaseState: ENABLED — KB retrieval is active. The Agent's
+  #   instructions direct it to query the KB only when all Gold table queries
+  #   return empty results (Req 4.2, 5.3).
+  #
+  # The description is surfaced to the Agent as context about when and why to
+  # use this knowledge base resource.
+  # --------------------------------------------------------------------------
+  AgentKbAssociation:
+    Type: AWS::Bedrock::AgentKnowledgeBase
+    DependsOn: SreCopilotAgent
+    Properties:
+      AgentId: !Ref SreCopilotAgent
+      AgentVersion: DRAFT
+      KnowledgeBaseId: !If
+        - UseImportedKnowledgeBaseId
+        - !ImportValue KnowledgeBaseId
+        - !Ref KnowledgeBaseIdOverride
+      Description: >
+        SRE runbooks and postmortems for the multi-service web application.
+        Query this knowledge base ONLY when all Gold table tool calls return
+        empty result sets, or when the user explicitly asks about runbook
+        procedures or past incident postmortems. Do not query this KB for
+        routine health-check investigations that are answered by Gold data.
+      KnowledgeBaseState: ENABLED
+
+  # --------------------------------------------------------------------------
+  # AgentAlias
+  # A named alias "live" that points to the latest prepared version of
+  # SreCopilotAgent. The sre-chat-handler Lambda invokes the Agent using the
+  # alias ID rather than the DRAFT version, ensuring production traffic always
+  # hits a fully prepared and stable agent version.
+  #
+  # routingConfiguration: Bedrock resolves the alias to the most recently
+  #   prepared agent version at alias creation time. When the agent is updated
+  #   and re-prepared, the alias must be updated (or a new version created and
+  #   the alias re-pointed) to route to the new version.
+  #
+  # agentAliasName: "live" — a stable, human-readable identifier exported as
+  #   AgentAliasId for use by the chat handler Lambda environment variables.
+  # --------------------------------------------------------------------------
+  AgentAlias:
+    Type: AWS::Bedrock::AgentAlias
+    DependsOn:
+      - SreCopilotAgent
+      - SreGoldToolsActionGroup
+      - AgentKbAssociation
+    Properties:
+      AgentId: !Ref SreCopilotAgent
+      AgentAliasName: "live"
+      Description: >
+        Stable production alias for the sre-copilot agent. The sre-chat-handler
+        Lambda uses this alias ID to invoke the agent so that in-progress agent
+        updates do not immediately affect live traffic. Update the alias routing
+        configuration to point to a new prepared version after validating changes.
+
+      Tags:
+        Project: sre-copilot
+        Environment: !Ref EnvironmentName
+        ManagedBy: CloudFormation
+        Purpose: production-agent-alias
+
+# ---------------------------------------------------------------------------
+# Outputs / Exports
+# ---------------------------------------------------------------------------
+Outputs:
+
+  AgentId:
+    Description: >
+      Bedrock Agent ID for sre-copilot.
+      Consumed by:
+        • Stack 05-lambda-chat — AGENT_ID environment variable for the
+          sre-chat-handler Lambda (set this after deploying stack 7).
+        • Stack 01-iam-roles   — AgentArn parameter update to scope
+          LambdaChatRole's bedrock:InvokeAgent permission.
+        • scripts/test_agent.py — CLI end-to-end test.
+    Value: !Ref SreCopilotAgent
+    Export:
+      Name: AgentId
+
+  AgentArn:
+    Description: >
+      Full ARN of the Bedrock Agent.
+      Import into stack 01-iam-roles (AgentArn parameter) to scope the
+      LambdaChatRole's bedrock:InvokeAgent permission to this specific agent.
+    Value: !GetAtt SreCopilotAgent.AgentArn
+    Export:
+      Name: AgentArn
+
+  AgentAliasId:
+    Description: >
+      Bedrock Agent Alias ID for the "live" alias.
+      Consumed by:
+        • Stack 05-lambda-chat — AGENT_ALIAS_ID environment variable for the
+          sre-chat-handler Lambda (set this after deploying stack 7).
+        • scripts/test_agent.py — CLI end-to-end test invocation.
+    Value: !GetAtt AgentAlias.AgentAliasId
+    Export:
+      Name: AgentAliasId
+
+  AgentAliasArn:
+    Description: >
+      Full ARN of the "live" Agent Alias.
+      Useful for scoping IAM policies to exactly this alias rather than the
+      entire agent, for finer-grained access control in multi-alias deployments.
+    Value: !GetAtt AgentAlias.AgentAliasArn
+    Export:
+      Name: AgentAliasArn

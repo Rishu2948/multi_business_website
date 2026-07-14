@@ -1,0 +1,2 @@
+databricks-sql-connector==3.0.2
+boto3==1.34.0

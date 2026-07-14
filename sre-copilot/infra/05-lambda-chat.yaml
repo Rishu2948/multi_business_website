@@ -1,0 +1,265 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack 5 - Chat Handler Lambda and API Gateway HTTP API for the SRE Copilot Agent.
+  Creates:
+    • ChatHandlerFunction  — Python 3.12, 256 MB, 120s timeout; proxies POST /chat
+                             requests to the Bedrock Agent and returns the response
+    • ChatApi              — API Gateway V2 HTTP API with a single POST /chat route
+    • ChatApiIntegration   — AWS_PROXY (Lambda proxy) integration
+    • ChatApiRoute         — POST /chat route wired to the integration
+    • ChatHandlerPermission — resource-based permission for APIGW → Lambda invocation
+    • ChatApiStage         — $default auto-deploy stage
+  CORS AllowOrigins is scoped to the S3 website URL exported by sre-s3-buckets
+  (Req 6.9) to prevent arbitrary cross-origin requests.
+  Exports: ChatApiUrl (consumed by deploy.sh and the React UI build step).
+
+  Requirement 9.2: Lambda memory ≤ 256 MB to stay within 400K GB-s/month free tier.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Logical environment name; used as a resource name prefix/tag.
+
+  AgentId:
+    Type: String
+    Description: >
+      Bedrock Agent ID for the sre-copilot agent.
+      Obtained after deploying stack 07-bedrock-agent and available in the
+      AWS Console under Amazon Bedrock → Agents → sre-copilot → Agent ID.
+
+  AgentAliasId:
+    Type: String
+    Description: >
+      Bedrock Agent Alias ID (e.g., the "live" alias created in stack 07).
+      Required by bedrock-agent-runtime:InvokeAgent alongside the Agent ID.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # --------------------------------------------------------------------------
+  # ChatHandlerFunction
+  # The API Gateway proxy Lambda that receives POST /chat requests from the
+  # React Chat UI and forwards them to the Bedrock Agent via the
+  # bedrock-agent-runtime InvokeAgent API.
+  #
+  # Runtime:    python3.12
+  # Memory:     256 MB  (Req 9.2 — free-tier compliant)
+  # Timeout:    120 s   (Bedrock Agent responses can take 30–60 s end-to-end
+  #                      including action group Lambda round-trips)
+  # Role:       LambdaChatRoleArn imported from stack sre-iam-roles
+  #
+  # Environment variables (non-secret):
+  #   AGENT_ID        — Bedrock Agent ID (from Parameter)
+  #   AGENT_ALIAS_ID  — Bedrock Agent Alias ID (from Parameter)
+  #
+  # The handler validates the question (non-empty, ≤ 2000 chars — Req 6.7),
+  # calls InvokeAgent with a per-tab session ID supplied by the client,
+  # collects the streaming response chunks into a single string, and returns
+  # {"response": "...", "sessionId": "...", "dataFreshness": "..."} (Req 6.3).
+  # OPTIONS preflight requests are handled inline (Req 6.9).
+  # --------------------------------------------------------------------------
+  ChatHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "sre-chat-handler-${EnvironmentName}"
+      Description: >
+        API Gateway proxy Lambda: validates POST /chat requests, calls
+        Bedrock Agent InvokeAgent, collects streaming chunks, and returns
+        the Agent response to the React Chat UI.
+      Runtime: python3.12
+      Handler: handler.handler
+      MemorySize: 256
+      Timeout: 120
+      Role: !ImportValue LambdaChatRoleArn
+      Code:
+        S3Bucket: !Sub "sre-copilot-deployments-${AWS::AccountId}"
+        S3Key: !Sub "lambda/sre_chat_handler/function-${EnvironmentName}.zip"
+      Environment:
+        Variables:
+          AGENT_ID: !Ref AgentId
+          AGENT_ALIAS_ID: !Ref AgentAliasId
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Purpose
+          Value: api-gateway-proxy
+
+  # --------------------------------------------------------------------------
+  # ChatHandlerFunctionLogGroup
+  # Explicit log group so CloudFormation owns retention and the group is
+  # removed cleanly on stack deletion. Retention set to 14 days.
+  # --------------------------------------------------------------------------
+  ChatHandlerFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/sre-chat-handler-${EnvironmentName}"
+      RetentionInDays: 14
+
+  # --------------------------------------------------------------------------
+  # ChatApi
+  # API Gateway V2 HTTP API (pay-per-request, no provisioned capacity).
+  # Exposes a single POST /chat route that the React UI calls (Req 6.2).
+  #
+  # CORS configuration (Req 6.9):
+  #   AllowOrigins  — The S3 static website URL exported by stack sre-s3-buckets.
+  #                   Using !ImportValue keeps the origin scoped to this project's
+  #                   UI bucket rather than allowing *.
+  #   AllowMethods  — GET, POST, OPTIONS (covers the actual request and preflight).
+  #   AllowHeaders  — Content-Type is the only header the React UI sends.
+  #   MaxAge        — 300 s browser preflight cache to reduce OPTIONS round-trips.
+  #
+  # Note: The S3 website URL format is http://... (HTTP, not HTTPS) because
+  # S3 static website hosting does not support TLS. The CORS AllowOrigins must
+  # match the exact origin the browser sends, which is the http:// URL.
+  # --------------------------------------------------------------------------
+  ChatApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "sre-chat-api-${EnvironmentName}"
+      Description: >
+        HTTP API that exposes POST /chat for the SRE Copilot React Chat UI.
+        Routes requests to the sre-chat-handler Lambda function.
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          # Import the S3 website URL from stack 03-s3-buckets.
+          # The website URL is in the form: http://<bucket>.s3-website-<region>.amazonaws.com
+          - !ImportValue UiBucketWebsiteUrl
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+        MaxAge: 300
+      Tags:
+        Project: sre-copilot
+        Environment: !Ref EnvironmentName
+        ManagedBy: CloudFormation
+
+  # --------------------------------------------------------------------------
+  # ChatApiIntegration
+  # AWS_PROXY (Lambda proxy) integration that forwards the full API Gateway
+  # request event to ChatHandlerFunction and returns its response verbatim.
+  # PayloadFormatVersion 2.0 is used for HTTP API Lambda integrations; it
+  # provides a cleaner event shape than 1.0 (requestContext, rawPath, etc.).
+  # --------------------------------------------------------------------------
+  ChatApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ChatApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ChatHandlerFunction.Arn
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 29000
+
+  # --------------------------------------------------------------------------
+  # ChatApiRoute
+  # Defines the POST /chat route and wires it to ChatApiIntegration.
+  # The $default authorizer type means no authentication is applied — the UI
+  # is a personal/demo deployment. Add a JWT authorizer here for production.
+  # --------------------------------------------------------------------------
+  ChatApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ChatApi
+      RouteKey: "POST /chat"
+      Target: !Sub "integrations/${ChatApiIntegration}"
+
+  # --------------------------------------------------------------------------
+  # ChatHandlerPermission
+  # Resource-based policy statement allowing API Gateway to invoke
+  # ChatHandlerFunction. The SourceArn is scoped to this specific API and
+  # any stage/route to prevent other API Gateways from invoking the function.
+  # --------------------------------------------------------------------------
+  ChatHandlerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ChatHandlerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ChatApi}/*"
+
+  # --------------------------------------------------------------------------
+  # ChatApiStage
+  # The $default stage with AutoDeploy enabled so that every update to the
+  # API definition is automatically deployed without a manual deploy step.
+  # Access logging is routed to ChatApiLogGroup for operational visibility
+  # (Req 8.1 — structured log format).
+  # --------------------------------------------------------------------------
+  ChatApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ChatApi
+      StageName: "$default"
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ChatApiLogGroup.Arn
+        Format: >-
+          {"requestId":"$context.requestId","ip":"$context.identity.sourceIp",
+          "requestTime":"$context.requestTime","httpMethod":"$context.httpMethod",
+          "routeKey":"$context.routeKey","status":"$context.status",
+          "protocol":"$context.protocol","responseLength":"$context.responseLength",
+          "integrationError":"$context.integrationErrorMessage"}
+      Tags:
+        Project: sre-copilot
+        Environment: !Ref EnvironmentName
+        ManagedBy: CloudFormation
+
+  # --------------------------------------------------------------------------
+  # ChatApiLogGroup
+  # CloudWatch log group that receives API Gateway access logs.
+  # Retention set to 14 days to control storage costs (Req 9.4).
+  # --------------------------------------------------------------------------
+  ChatApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/sre-chat-api-${EnvironmentName}"
+      RetentionInDays: 14
+
+# ---------------------------------------------------------------------------
+# Outputs / Exports
+# ---------------------------------------------------------------------------
+Outputs:
+
+  ChatApiUrl:
+    Description: >
+      Invoke URL for the SRE Chat API ($default stage).
+      Format: https://<api-id>.execute-api.<region>.amazonaws.com
+      Consumers:
+        • React Chat UI build step — embed in VITE_API_URL env var so
+          useChat.js can POST to <ChatApiUrl>/chat.
+        • deploy.sh — printed at the end of the deploy run for reference.
+    Value: !Sub "https://${ChatApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: ChatApiUrl
+
+  ChatApiId:
+    Description: >
+      API Gateway V2 HTTP API ID for the SRE Chat API.
+      Useful for aws apigatewayv2 commands during testing and debugging.
+    Value: !Ref ChatApi
+
+  ChatHandlerFunctionArn:
+    Description: >
+      ARN of the sre-chat-handler Lambda function.
+      Not imported by downstream stacks but available for manual test invocations.
+    Value: !GetAtt ChatHandlerFunction.Arn
+
+  ChatHandlerFunctionName:
+    Description: >
+      Name of the sre-chat-handler Lambda function.
+      Used by scripts/test_agent.py for CLI end-to-end test invocations.
+    Value: !Ref ChatHandlerFunction

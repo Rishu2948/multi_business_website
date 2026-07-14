@@ -1,0 +1,282 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack 1 - IAM roles for the SRE Copilot Agent system.
+  Defines BedrockAgentRole, LambdaToolsRole, and LambdaChatRole with least-privilege
+  policies. Downstream stacks import the exported ARNs to associate roles with resources.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+# ARNs for resources created in later stacks are accepted as parameters so that
+# this stack can be deployed first and updated in-place once those ARNs are known.
+# Use the "placeholder" defaults during the initial bootstrap deploy; re-deploy
+# with real values after stacks 4, 6, and 7 have been deployed.
+Parameters:
+
+  GoldQueryToolsFunctionArn:
+    Type: String
+    Default: "arn:aws:lambda:us-east-1:123456789012:function:sre-gold-query-tools"
+    Description: >
+      ARN of the sre-gold-query-tools Lambda function (Action Group executor).
+      Used to scope BedrockAgentRole's lambda:InvokeFunction permission.
+      Update after stack 04-lambda-tools is deployed.
+
+  KnowledgeBaseArn:
+    Type: String
+    Default: "arn:aws:bedrock:us-east-1:123456789012:knowledge-base/PLACEHOLDER"
+    Description: >
+      ARN of the Bedrock Knowledge Base (sre-runbooks-kb).
+      Used to scope BedrockAgentRole's bedrock:Retrieve permission.
+      Update after stack 06-bedrock-kb is deployed.
+
+  AgentArn:
+    Type: String
+    Default: "arn:aws:bedrock:us-east-1:123456789012:agent/PLACEHOLDER"
+    Description: >
+      ARN of the Bedrock Agent (sre-copilot).
+      Used to scope LambdaChatRole's bedrock:InvokeAgent permission.
+      Update after stack 07-bedrock-agent is deployed.
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Logical environment name; used as a resource name prefix/tag.
+
+# ---------------------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------------------
+# (none required at this time; reserved for future env-specific branching)
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # --------------------------------------------------------------------------
+  # BedrockAgentRole
+  # The Bedrock service assumes this role when orchestrating the Agent.
+  # Permissions (Requirement 7.4):
+  #   • lambda:InvokeFunction  — Action Group Lambda only
+  #   • bedrock:Retrieve       — Knowledge Base only
+  #   • logs:CreateLogGroup, logs:CreateLogDelivery, logs:PutLogEvents
+  #     scoped to the Agent's own log group
+  # --------------------------------------------------------------------------
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "sre-bedrock-agent-role-${EnvironmentName}"
+      Description: "IAM role assumed by the Bedrock Agent (sre-copilot)"
+
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowBedrockAgentAssumeRole
+            Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              # Restrict to this account to prevent confused-deputy attacks
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+      Policies:
+        - PolicyName: InvokeActionGroupLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InvokeGoldQueryToolsFunction
+                Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Ref GoldQueryToolsFunctionArn
+
+        - PolicyName: RetrieveFromKnowledgeBase
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: RetrieveRunbooksKB
+                Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                Resource: !Ref KnowledgeBaseArn
+
+        - PolicyName: WriteAgentLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AgentCloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogDelivery
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock/agents/sre-copilot*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock/agents/sre-copilot*:*"
+
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # --------------------------------------------------------------------------
+  # LambdaToolsRole
+  # Assumed by the sre-gold-query-tools Lambda function.
+  # Permissions (Requirement 7.4, design §Stack 1):
+  #   • secretsmanager:GetSecretValue  — scoped to sre/* secrets only
+  #   • logs:*                         — scoped to own log group only
+  # --------------------------------------------------------------------------
+  LambdaToolsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "sre-lambda-tools-role-${EnvironmentName}"
+      Description: "Execution role for the sre-gold-query-tools Lambda function"
+
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowLambdaAssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+
+      Policies:
+        - PolicyName: ReadDatabricksSecret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: GetSreSecrets
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  # Scope to all secrets under the sre/ prefix in this account/region
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:sre/*"
+
+        - PolicyName: WriteOwnLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CreateOwnLogGroup
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sre-gold-query-tools*"
+              - Sid: WriteToOwnLogGroup
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sre-gold-query-tools*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sre-gold-query-tools*:*"
+
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # --------------------------------------------------------------------------
+  # LambdaChatRole
+  # Assumed by the sre-chat-handler Lambda function.
+  # Permissions (Requirement 7.4, design §Stack 1):
+  #   • bedrock:InvokeAgent  — scoped to the sre-copilot Agent ARN only
+  #   • logs:*               — scoped to own log group
+  # --------------------------------------------------------------------------
+  LambdaChatRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "sre-lambda-chat-role-${EnvironmentName}"
+      Description: "Execution role for the sre-chat-handler Lambda function"
+
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowLambdaAssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+
+      Policies:
+        - PolicyName: InvokeBedrockAgent
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InvokeSreCopilotAgent
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: !Ref AgentArn
+
+        - PolicyName: WriteOwnLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CreateOwnLogGroup
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sre-chat-handler*"
+              - Sid: WriteToOwnLogGroup
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sre-chat-handler*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sre-chat-handler*:*"
+
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# ---------------------------------------------------------------------------
+# Outputs / Exports
+# ---------------------------------------------------------------------------
+# All three role ARNs are exported so later stacks can import them with
+# !ImportValue rather than hard-coding or passing as parameters.
+Outputs:
+
+  BedrockAgentRoleArn:
+    Description: "ARN of the IAM role assumed by the Bedrock Agent"
+    Value: !GetAtt BedrockAgentRole.Arn
+    Export:
+      Name: BedrockAgentRoleArn
+
+  LambdaToolsRoleArn:
+    Description: "ARN of the IAM execution role for sre-gold-query-tools Lambda"
+    Value: !GetAtt LambdaToolsRole.Arn
+    Export:
+      Name: LambdaToolsRoleArn
+
+  LambdaChatRoleArn:
+    Description: "ARN of the IAM execution role for sre-chat-handler Lambda"
+    Value: !GetAtt LambdaChatRole.Arn
+    Export:
+      Name: LambdaChatRoleArn

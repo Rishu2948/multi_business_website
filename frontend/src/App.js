@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { ChatProvider } from './context/ChatContext';
 import { BusinessProvider } from './context/BusinessContext';
 import { CartProvider } from './context/CartContext';
 import ProtectedRoute from './components/protected/ProtectedRoute';
@@ -131,12 +132,14 @@ function App() {
     <div className="App">
       <BrowserRouter>
         <AuthProvider>
-          <BusinessProvider>
-            <CartProvider>
-              <AppRouter />
-              <Toaster position="top-right" />
-            </CartProvider>
-          </BusinessProvider>
+          <ChatProvider>
+            <BusinessProvider>
+              <CartProvider>
+                <AppRouter />
+                <Toaster position="top-right" />
+              </CartProvider>
+            </BusinessProvider>
+          </ChatProvider>
         </AuthProvider>
       </BrowserRouter>
     </div>
