@@ -1,0 +1,84 @@
+name: Deploy — Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: prod
+        type: choice
+        options: [dev, prod]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  DEPLOY_ENV: ${{ github.event.inputs.environment || 'prod' }}
+
+jobs:
+  deploy:
+    name: Build & Deploy to S3 + CloudFront
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Load frontend build secrets from AWS Secrets Manager
+        env:
+          FRONTEND_SECRET_NAME: ${{ secrets.FRONTEND_SECRET_NAME }}
+        run: |
+          SECRET_JSON=$(aws secretsmanager get-secret-value \
+            --secret-id "${FRONTEND_SECRET_NAME}" \
+            --query SecretString \
+            --output text \
+            --region "${AWS_REGION}")
+          echo "REACT_APP_BACKEND_URL=$(echo "$SECRET_JSON" | jq -r '.REACT_APP_BACKEND_URL')" >> "$GITHUB_ENV"
+          echo "REACT_APP_GOOGLE_CLIENT_ID=$(echo "$SECRET_JSON" | jq -r '.REACT_APP_GOOGLE_CLIENT_ID')" >> "$GITHUB_ENV"
+          # Mask secrets so they don't appear in logs
+          echo "::add-mask::$(echo "$SECRET_JSON" | jq -r '.REACT_APP_GOOGLE_CLIENT_ID')"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        working-directory: frontend
+        run: yarn build
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync frontend/build/ "s3://${{ secrets.S3_BUCKET }}/" \
+            --delete \
+            --region "${AWS_REGION}"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
+      - name: Deployment summary
+        run: |
+          echo "### Frontend Deployed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${GITHUB_SHA}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Bucket:** \`${{ secrets.S3_BUCKET }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **CloudFront:** \`${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}\`" >> $GITHUB_STEP_SUMMARY

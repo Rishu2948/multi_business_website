@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+import asyncio
 import os
 import logging
 from pathlib import Path
@@ -445,47 +446,34 @@ async def list_products(
 
 @api_router.get("/products/trending/{business_id}")
 async def get_trending_products(business_id: str, limit: int = 6):
-    """Get trending/bestseller products ranked by order count + review rating"""
+    """
+    Return pre-computed trending products sorted by trending_score.
+
+    Scores are written directly onto product documents by the background
+    refresh job (trending_refresh.py) which runs every 15 minutes.
+
+    Previous implementation: 2N+1 DB round-trips (one aggregation + one
+    reviews query per product — classic N+1 problem).
+    Current implementation: 1 DB round-trip (indexed sort + limit).
+    """
     products = await db.products.find(
         {"business_id": business_id, "status": "active"},
         {"_id": 0}
-    ).to_list(200)
+    ).sort("trending_score", -1).limit(limit).to_list(limit)
 
-    scored = []
-    for product in products:
-        pid = product["product_id"]
+    # Graceful fallback: background job hasn't run yet (first boot) or
+    # no products have a trending_score field stored yet.
+    if not products or products[0].get("trending_score") is None:
+        logger.warning(
+            "trending scores not yet computed for business=%s — falling back to avg_rating",
+            business_id
+        )
+        products = await db.products.find(
+            {"business_id": business_id, "status": "active"},
+            {"_id": 0}
+        ).sort("avg_rating", -1).limit(limit).to_list(limit)
 
-        # Count how many times this product was ordered (sum quantities across all orders)
-        order_pipeline = [
-            {"$match": {"business_id": business_id}},
-            {"$unwind": "$items"},
-            {"$match": {"items.product_id": pid}},
-            {"$group": {"_id": None, "total_ordered": {"$sum": "$items.quantity"}}}
-        ]
-        order_agg = await db.orders.aggregate(order_pipeline).to_list(1)
-        total_ordered = order_agg[0]["total_ordered"] if order_agg else 0
-
-        # Get review stats
-        reviews = await db.reviews.find({"product_id": pid}, {"_id": 0, "rating": 1}).to_list(500)
-        review_count = len(reviews)
-        avg_rating = (sum(r["rating"] for r in reviews) / review_count) if review_count else 0
-
-        # Score: weighted combo — orders matter more, reviews add boost
-        score = (total_ordered * 10) + (avg_rating * 5) + (review_count * 2)
-
-        scored.append({
-            **product,
-            "total_ordered": total_ordered,
-            "review_count": review_count,
-            "avg_rating": round(avg_rating, 1),
-            "trending_score": round(score, 1)
-        })
-
-    # Sort by score descending, take top N
-    scored.sort(key=lambda x: x["trending_score"], reverse=True)
-    trending = scored[:limit]
-
-    return {"trending": trending, "total": len(trending)}
+    return {"trending": products, "total": len(products)}
 
 @api_router.post("/products/track-view")
 async def track_product_view(request: Request):
@@ -1173,6 +1161,104 @@ logging.basicConfig(
 async def shutdown_db_client():
     client.close()
 
+async def ensure_compound_indexes() -> None:
+    """
+    Create all performance-critical compound indexes idempotently.
+
+    These indexes are the difference between a collection scan and an
+    index-only scan on the most frequently hit query patterns.
+
+    Index naming convention: {collection}_{fields}_idx
+    All created with background=True so startup doesn't block traffic.
+    """
+    # ── products ──────────────────────────────────────────────────────────
+    # Catalog list queries: filter by business + status, sort by trending
+    await db.products.create_index(
+        [("business_id", 1), ("status", 1), ("trending_score", -1)],
+        background=True,
+        name="products_business_status_trending_idx"
+    )
+    # Category-filtered catalog queries
+    await db.products.create_index(
+        [("business_id", 1), ("status", 1), ("category_id", 1)],
+        background=True,
+        name="products_business_status_category_idx"
+    )
+
+    # ── product_views ─────────────────────────────────────────────────────
+    # Recommendation engine: fetch a user's recent views per business
+    await db.product_views.create_index(
+        [("user_id", 1), ("business_id", 1), ("last_viewed", -1)],
+        background=True,
+        name="product_views_user_business_time_idx"
+    )
+
+    # ── orders ────────────────────────────────────────────────────────────
+    # Admin dashboard: orders for a business, newest first
+    await db.orders.create_index(
+        [("business_id", 1), ("created_at", -1)],
+        background=True,
+        name="orders_business_time_idx"
+    )
+    # My orders page + recommendation engine: a user's order history
+    await db.orders.create_index(
+        [("user_id", 1), ("created_at", -1)],
+        background=True,
+        name="orders_user_time_idx"
+    )
+    # Order management: filter by status within a business
+    await db.orders.create_index(
+        [("business_id", 1), ("order_status", 1), ("created_at", -1)],
+        background=True,
+        name="orders_business_status_time_idx"
+    )
+
+    # ── reviews ───────────────────────────────────────────────────────────
+    # Review lookup per product (used by trending refresh aggregation)
+    await db.reviews.create_index(
+        [("product_id", 1)],
+        background=True,
+        name="reviews_product_idx"
+    )
+
+    logger.info("compound indexes created / verified")
+
+
+async def _trending_refresh_loop() -> None:
+    """
+    Background asyncio task: refreshes trending scores every 15 minutes.
+
+    Runs inside the same event loop as FastAPI — shares the Motor db
+    connection pool with no extra overhead.
+
+    If two ECS tasks run simultaneously, both write the same computed
+    values (idempotent). No correctness issue; minor redundant work.
+    The fix for multi-container is a Redis distributed lock — tracked
+    as a future improvement.
+    """
+    import trending_refresh  # local import avoids circular dependency at module load
+
+    # Short initial delay so the app is fully ready before first run
+    await asyncio.sleep(5)
+
+    while True:
+        try:
+            businesses = await db.businesses.find(
+                {"status": "active"},
+                {"_id": 0, "business_id": 1}
+            ).to_list(100)
+
+            for biz in businesses:
+                await trending_refresh.refresh_trending_scores(db, biz["business_id"])
+
+        except Exception:
+            logger.exception("trending refresh loop error — will retry in 15 min")
+
+        await asyncio.sleep(15 * 60)   # 15 minutes
+
+
 @app.on_event("startup")
 async def startup_event():
     await ensure_user_preferences_indexes()
+    await ensure_compound_indexes()
+    asyncio.create_task(_trending_refresh_loop())
