@@ -27,10 +27,23 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 load_dotenv(Path(__file__).parent / ".env")
 
-MONGO_URL            = os.environ["MONGO_URL"]
-DB_NAME              = os.environ["DB_NAME"]
-TEST_CUSTOMER_TOKEN  = os.environ["TEST_CUSTOMER_TOKEN"]
-TEST_ADMIN_TOKEN     = os.environ["TEST_ADMIN_TOKEN"]
+MONGO_URL            = os.environ.get("MONGO_URL", "")
+DB_NAME              = os.environ.get("DB_NAME", "")
+TEST_CUSTOMER_TOKEN  = os.environ.get("TEST_CUSTOMER_TOKEN", "")
+TEST_ADMIN_TOKEN     = os.environ.get("TEST_ADMIN_TOKEN", "")
+
+# Fail immediately with a clear message rather than a cryptic pymongo error
+missing = [k for k, v in {
+    "MONGO_URL":           MONGO_URL,
+    "DB_NAME":             DB_NAME,
+    "TEST_CUSTOMER_TOKEN": TEST_CUSTOMER_TOKEN,
+    "TEST_ADMIN_TOKEN":    TEST_ADMIN_TOKEN,
+}.items() if not v.strip()]
+
+if missing:
+    print(f"ERROR: The following required environment variables are not set: {', '.join(missing)}")
+    print("Set them as GitHub Secrets (Settings → Secrets → Actions) or in backend/.env for local use.")
+    sys.exit(1)
 
 FAR_FUTURE = datetime.now(timezone.utc) + timedelta(days=3650)   # ~10 years
 
