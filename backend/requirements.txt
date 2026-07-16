@@ -6,3 +6,9 @@ httpx
 stripe
 pydantic
 google-auth
+pymongo
+
+# testing
+pytest
+pytest-asyncio
+requests
