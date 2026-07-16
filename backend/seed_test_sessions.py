@@ -28,12 +28,14 @@ MONGO_URL           = os.environ.get("MONGO_URL", "")
 DB_NAME             = os.environ.get("DB_NAME", "")
 TEST_CUSTOMER_TOKEN = os.environ.get("TEST_CUSTOMER_TOKEN", "")
 TEST_ADMIN_TOKEN    = os.environ.get("TEST_ADMIN_TOKEN", "")
+TEST_DELIVERY_TOKEN = os.environ.get("TEST_DELIVERY_TOKEN", "")
 
 missing = [k for k, v in {
     "MONGO_URL":           MONGO_URL,
     "DB_NAME":             DB_NAME,
     "TEST_CUSTOMER_TOKEN": TEST_CUSTOMER_TOKEN,
     "TEST_ADMIN_TOKEN":    TEST_ADMIN_TOKEN,
+    "TEST_DELIVERY_TOKEN": TEST_DELIVERY_TOKEN,
 }.items() if not v.strip()]
 
 if missing:
@@ -99,6 +101,11 @@ async def seed():
         {
             "session_id": "test_session_id_admin_ci", "user_id": ADMIN_USER_ID,
             "session_token": TEST_ADMIN_TOKEN, "expires_at": FAR_FUTURE,
+            "created_at": datetime.now(timezone.utc), "ip_address": "127.0.0.1", "user_agent": "pytest-ci",
+        },
+        {
+            "session_id": "test_session_id_delivery_ci", "user_id": DELIVERY_USER_ID,
+            "session_token": TEST_DELIVERY_TOKEN, "expires_at": FAR_FUTURE,
             "created_at": datetime.now(timezone.utc), "ip_address": "127.0.0.1", "user_agent": "pytest-ci",
         },
     ]:
