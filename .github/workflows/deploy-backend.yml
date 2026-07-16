@@ -52,11 +52,12 @@ jobs:
       - name: Run tests
         working-directory: backend
         env:
-          REACT_APP_BACKEND_URL: ${{ secrets.BACKEND_URL }}
-          MONGO_URL:             ${{ secrets.MONGO_URL }}
-          DB_NAME:               ${{ secrets.DB_NAME }}
-          TEST_CUSTOMER_TOKEN:   ${{ secrets.TEST_CUSTOMER_TOKEN }}
-          TEST_ADMIN_TOKEN:      ${{ secrets.TEST_ADMIN_TOKEN }}
+          REACT_APP_BACKEND_URL:  ${{ secrets.BACKEND_URL }}
+          MONGO_URL:              ${{ secrets.MONGO_URL }}
+          DB_NAME:                ${{ secrets.DB_NAME }}
+          TEST_CUSTOMER_TOKEN:    ${{ secrets.TEST_CUSTOMER_TOKEN }}
+          TEST_ADMIN_TOKEN:       ${{ secrets.TEST_ADMIN_TOKEN }}
+          TEST_CUSTOMER_USER_ID:  test_customer_001
         run: python -m pytest tests/ -v --tb=short
         continue-on-error: false
 

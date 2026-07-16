@@ -18,7 +18,7 @@ ADMIN_TOKEN = os.environ.get("TEST_ADMIN_TOKEN", "test_session_admin_001")
 CUSTOMER_TOKEN = os.environ.get("TEST_CUSTOMER_TOKEN", "test_session_customer_001")
 DELIVERY_TOKEN = "test_session_delivery_001"
 DELIVERY_USER_ID = "user_fb1a35e23da7"
-CUSTOMER_USER_ID = "test_customer_001"
+CUSTOMER_USER_ID = os.environ.get("TEST_CUSTOMER_USER_ID", "test_customer_001")
 
 def H(token):
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -197,8 +197,13 @@ class TestAutoAssign:
 # ============= AWS DEPLOYMENT README =============
 class TestAWSReadme:
     def test_readme_exists_and_has_sections(self):
-        path = "/app/AWS_DEPLOYMENT_README.md"
-        assert os.path.exists(path), f"{path} missing"
+        # Try both Docker path (/app/) and repo-root path
+        candidates = [
+            "/app/AWS_DEPLOYMENT_README.md",
+            os.path.join(os.path.dirname(__file__), "..", "..", "AWS_DEPLOYMENT_README.md"),
+        ]
+        path = next((p for p in candidates if os.path.exists(p)), None)
+        assert path is not None, "AWS_DEPLOYMENT_README.md not found in /app/ or repo root"
         content = open(path).read()
         for keyword in ["S3", "CloudFront", "ECS", "MongoDB Atlas", "EMAIL_PROVIDER"]:
             assert keyword in content, f"Missing {keyword} in AWS_DEPLOYMENT_README.md"
