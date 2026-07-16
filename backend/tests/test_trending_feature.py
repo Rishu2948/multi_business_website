@@ -10,7 +10,7 @@ import os
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'http://localhost:8000').rstrip('/')
 
 # Test tokens
-CUSTOMER_TOKEN = "test_session_customer_001"
+CUSTOMER_TOKEN = os.environ.get("TEST_CUSTOMER_TOKEN", "test_session_customer_001")
 
 @pytest.fixture
 def api_client():

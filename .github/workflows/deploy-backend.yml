@@ -40,11 +40,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
-      - name: Seed test sessions into MongoDB
+      - name: Seed test sessions into TEST database only
         working-directory: backend
         env:
-          MONGO_URL: ${{ secrets.MONGO_URL }}
-          DB_NAME:   ${{ secrets.DB_NAME }}
+          MONGO_URL:            ${{ secrets.MONGO_URL }}
+          DB_NAME:              ${{ secrets.DB_NAME }}
+          TEST_CUSTOMER_TOKEN:  ${{ secrets.TEST_CUSTOMER_TOKEN }}
+          TEST_ADMIN_TOKEN:     ${{ secrets.TEST_ADMIN_TOKEN }}
         run: python seed_test_sessions.py
 
       - name: Run tests
@@ -53,6 +55,8 @@ jobs:
           REACT_APP_BACKEND_URL: ${{ secrets.BACKEND_URL }}
           MONGO_URL:             ${{ secrets.MONGO_URL }}
           DB_NAME:               ${{ secrets.DB_NAME }}
+          TEST_CUSTOMER_TOKEN:   ${{ secrets.TEST_CUSTOMER_TOKEN }}
+          TEST_ADMIN_TOKEN:      ${{ secrets.TEST_ADMIN_TOKEN }}
         run: python -m pytest tests/ -v --tb=short
         continue-on-error: false
 

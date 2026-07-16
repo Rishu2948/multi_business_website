@@ -4,8 +4,8 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8000").rstrip("/")
-ADMIN_TOKEN = "test_session_admin_001"
-CUSTOMER_TOKEN = "test_session_customer_001"
+ADMIN_TOKEN = os.environ.get("TEST_ADMIN_TOKEN", "test_session_admin_001")
+CUSTOMER_TOKEN = os.environ.get("TEST_CUSTOMER_TOKEN", "test_session_customer_001")
 CUSTOMER_USER_ID = "test_customer_001"
 
 H_ADMIN = {"Authorization": f"Bearer {ADMIN_TOKEN}", "Content-Type": "application/json"}
