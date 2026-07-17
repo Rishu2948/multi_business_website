@@ -114,3 +114,113 @@ async def refresh_trending_scores(db: AsyncIOMotorDatabase, business_id: str) ->
         business_id, len(bulk_ops), result.modified_count
     )
     return result.modified_count
+
+
+# ── New background tasks ───────────────────────────────────────────────────
+
+async def refresh_category_counts(db: AsyncIOMotorDatabase) -> None:
+    """
+    Sync product_count on every category document from the live products
+    collection. Runs every 10 minutes.
+    """
+    pipeline = [
+        {"$match": {"status": "active"}},
+        {"$group": {
+            "_id": {"business_id": "$business_id", "category_id": "$category_id"},
+            "count": {"$sum": 1},
+        }},
+    ]
+    from pymongo import UpdateOne
+    bulk_ops = []
+    async for row in db.products.aggregate(pipeline):
+        bulk_ops.append(UpdateOne(
+            {
+                "business_id": row["_id"]["business_id"],
+                "category_id": row["_id"]["category_id"],
+            },
+            {"$set": {"product_count": row["count"]}},
+        ))
+    if bulk_ops:
+        await db.categories.bulk_write(bulk_ops, ordered=False)
+    logger.info("category_counts_refresh: updated %d category docs", len(bulk_ops))
+
+
+async def expire_offers(db: AsyncIOMotorDatabase) -> None:
+    """
+    Set is_active=False on offers whose valid_until has passed.
+    Runs every hour.
+    """
+    from datetime import datetime, timezone
+    result = await db.offers.update_many(
+        {"valid_until": {"$lt": datetime.now(timezone.utc)}, "is_active": True},
+        {"$set": {"is_active": False}},
+    )
+    if result.modified_count:
+        logger.info("expire_offers: deactivated %d expired offers", result.modified_count)
+
+
+async def sync_has_active_offer(db: AsyncIOMotorDatabase) -> None:
+    """
+    Recompute has_active_offer on products based on currently active offers.
+    Runs every hour after expire_offers.
+
+    Strategy:
+      1. Collect all active offer scope_ids (product_ids + category_ids)
+      2. Mark matching products has_active_offer=True, all others False
+    """
+    from datetime import datetime, timezone
+    from pymongo import UpdateOne
+
+    now = datetime.now(timezone.utc)
+    active_offers = await db.offers.find(
+        {"is_active": True, "valid_until": {"$gte": now}},
+        {"_id": 0, "scope": 1, "scope_ids": 1},
+    ).to_list(200)
+
+    product_ids_with_offer: set = set()
+    category_ids_with_offer: set = set()
+    has_all_offer = False
+
+    for offer in active_offers:
+        scope = offer.get("scope", "all_products")
+        if scope == "all_products":
+            has_all_offer = True
+            break
+        elif scope == "specific_products":
+            product_ids_with_offer.update(offer.get("scope_ids", []))
+        elif scope == "specific_categories":
+            category_ids_with_offer.update(offer.get("scope_ids", []))
+
+    bulk_ops = []
+    if has_all_offer:
+        # All products get the flag
+        bulk_ops.append(UpdateOne(
+            {},
+            {"$set": {"has_active_offer": True}},
+            upsert=False,
+        ))
+        await db.products.update_many({}, {"$set": {"has_active_offer": True}})
+        logger.info("sync_has_active_offer: all products flagged (all_products scope offer active)")
+        return
+
+    # Reset all first
+    await db.products.update_many({}, {"$set": {"has_active_offer": False}})
+
+    # Set for specific products
+    if product_ids_with_offer:
+        await db.products.update_many(
+            {"product_id": {"$in": list(product_ids_with_offer)}},
+            {"$set": {"has_active_offer": True}},
+        )
+
+    # Set for category-scoped products
+    if category_ids_with_offer:
+        await db.products.update_many(
+            {"category_id": {"$in": list(category_ids_with_offer)}},
+            {"$set": {"has_active_offer": True}},
+        )
+
+    logger.info(
+        "sync_has_active_offer: products=%d, categories=%d",
+        len(product_ids_with_offer), len(category_ids_with_offer),
+    )

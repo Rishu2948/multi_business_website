@@ -15,7 +15,6 @@ on:
         options: [dev, prod]
 
 permissions:
-  id-token: write
   contents: read
 
 env:
@@ -32,8 +31,9 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
 
       - name: Load frontend build secrets from AWS Secrets Manager
         env:
@@ -52,17 +52,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'yarn'
-          cache-dependency-path: frontend/yarn.lock
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         working-directory: frontend
-        run: yarn install --frozen-lockfile
+        run: npm ci --legacy-peer-deps
 
       - name: Build
         working-directory: frontend
-        run: yarn build
+        run: npm run build
 
       - name: Sync to S3
         run: |

@@ -1,22 +1,35 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Marquee from 'react-fast-marquee';
 import useSWR, { mutate } from 'swr';
-import BakeryNavbar from '../components/common/BakeryNavbar';
+
+import OrderNavbar from '../components/common/OrderNavbar';
 import BakeryFooter from '../components/common/BakeryFooter';
+import AnnouncementBar from '../components/common/AnnouncementBar';
+import FloatingCartBar from '../components/common/FloatingCartBar';
 import ChatWidget from '../components/chatbot/ChatWidget';
+import CategorySidebar from '../components/catalog/CategorySidebar';
+import CategoryChipStrip from '../components/catalog/CategoryChipStrip';
+import ProductFiltersBar from '../components/catalog/ProductFiltersBar';
+import OrderProductCard from '../components/catalog/OrderProductCard';
+import ProductItemModal from '../components/catalog/ProductItemModal';
+
 import { useCart } from '../context/CartContext';
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed';
 import { useChatContext } from '../context/ChatContext';
 import apiClient from '../utils/api';
-import { Loader2, Package, ShoppingCart, Star, TrendingUp, Clock, Sparkles } from 'lucide-react';
+import { Loader2, Package, Star, TrendingUp, Clock, Sparkles, Menu as MenuIcon } from 'lucide-react';
+
+// ── Small shared components ────────────────────────────────────────────────
 
 const StarDisplay = ({ rating, count }) => (
   <div className="flex items-center gap-1.5">
     <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map((s) => (
-        <Star key={s} size={11} className={s <= Math.round(rating) ? 'fill-[#D4A373] text-[#D4A373]' : 'text-[#E8E0D5]'} />
+      {[1, 2, 3, 4, 5].map(s => (
+        <Star key={s} size={11}
+          className={s <= Math.round(rating) ? 'fill-[#D4A373] text-[#D4A373]' : 'text-[#E8E0D5]'}
+        />
       ))}
     </div>
     <span className="text-xs font-medium text-[#2C2420]">{rating}</span>
@@ -24,165 +37,149 @@ const StarDisplay = ({ rating, count }) => (
   </div>
 );
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: (i = 0) => ({ opacity: 1, y: 0, transition: { delay: i * 0.08, duration: 0.6, ease: [0.22, 1, 0.36, 1] } })
-};
-
-const CompactCard = ({ product, onAddToCart, cartLoading, rankBadge, testIdPrefix }) => (
-  <motion.div
-    variants={fadeUp}
-    initial="hidden"
-    whileInView="visible"
-    viewport={{ once: true }}
-    className="group"
-    data-testid={`${testIdPrefix}-card-${product.product_id}`}
-  >
-    <div className="relative aspect-[4/5] overflow-hidden mb-4">
-      {rankBadge && (
-        <div className="absolute top-3 left-3 z-10 w-8 h-8 bg-[#2C2420] text-[#FAF8F5] flex items-center justify-center font-serif text-sm font-bold" data-testid={`trending-rank-${rankBadge}`}>
-          {rankBadge}
-        </div>
-      )}
-      {product.images?.[0]?.url ? (
-        <img src={product.images[0].url} alt={product.product_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" />
-      ) : (
-        <div className="w-full h-full bg-[#F3EFEA] flex items-center justify-center">
-          <Package size={32} className="text-[#786A60]" strokeWidth={1.5} />
-        </div>
-      )}
-    </div>
-
-    <h3 className="font-serif text-lg text-[#2C2420] mb-1">{product.product_name}</h3>
-
-    <div className="flex items-center justify-between mb-2">
-      {product.avg_rating !== undefined && product.avg_rating > 0 ? (
-        <StarDisplay rating={product.avg_rating} count={product.review_count} />
-      ) : <div />}
-      {product.total_ordered > 0 && (
-        <span className="text-[11px] text-[#786A60] flex items-center gap-1"><TrendingUp size={11} />{product.total_ordered} sold</span>
-      )}
-    </div>
-
-    <div className="flex items-center justify-between">
-      <p className="text-sm font-semibold text-[#2C2420]">₹{product.base_price.toLocaleString()}</p>
-      <button
-        onClick={() => onAddToCart(product.product_id, null, 1)}
-        disabled={cartLoading}
-        className="bg-transparent border border-[#4A3B32] text-[#4A3B32] px-4 py-2 text-[11px] tracking-[0.15em] uppercase font-semibold hover:bg-[#4A3B32] hover:text-white transition-colors duration-300 disabled:opacity-50 flex items-center gap-1.5"
-        data-testid={`${testIdPrefix}-add-to-cart-${product.product_id}`}
-      >
-        <ShoppingCart size={13} />
-        Add
-      </button>
-    </div>
-  </motion.div>
-);
-
 const SectionHeader = ({ icon: Icon, title, subtitle, iconBg = 'bg-[#4A3B32]' }) => (
-  <div className="flex items-center gap-4 mb-10">
-    <div className={`w-10 h-10 ${iconBg} flex items-center justify-center`}>
-      <Icon size={18} className="text-white" strokeWidth={1.5} />
+  <div className="flex items-center gap-4 mb-8">
+    <div className={`w-9 h-9 ${iconBg} flex items-center justify-center flex-shrink-0`}>
+      <Icon size={16} className="text-white" strokeWidth={1.5} />
     </div>
     <div>
-      <h2 className="font-serif text-2xl md:text-3xl text-[#2C2420]">{title}</h2>
+      <h2 className="font-serif text-xl md:text-2xl text-[#2C2420]">{title}</h2>
       <p className="text-xs tracking-[0.15em] uppercase text-[#D4A373] font-semibold mt-0.5">{subtitle}</p>
     </div>
   </div>
 );
 
+// Compact card used in trending/recommended/recently-viewed sections
+const CompactCard = ({ product, onAddClick, rankBadge, testIdPrefix }) => (
+  <div className="group" data-testid={`${testIdPrefix}-card-${product.product_id}`}>
+    <div className="relative aspect-[4/5] overflow-hidden mb-3">
+      {rankBadge && (
+        <div className="absolute top-2 left-2 z-10 w-7 h-7 bg-[#2C2420] text-[#FAF8F5]
+                        flex items-center justify-center font-serif text-xs font-bold"
+             data-testid={`rank-${rankBadge}`}>
+          {rankBadge}
+        </div>
+      )}
+      {product.images?.[0]?.url ? (
+        <img src={product.images[0].url} alt={product.product_name}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full h-full bg-[#F3EFEA] flex items-center justify-center">
+          <Package size={28} className="text-[#786A60]" strokeWidth={1.5} aria-hidden="true" />
+        </div>
+      )}
+    </div>
+    <h3 className="font-serif text-base text-[#2C2420] mb-1 line-clamp-2">{product.product_name}</h3>
+    {product.avg_rating > 0 && (
+      <StarDisplay rating={product.avg_rating} count={product.review_count} />
+    )}
+    <div className="flex items-center justify-between mt-2">
+      <p className="text-sm font-semibold text-[#2C2420]">₹{product.base_price?.toLocaleString()}</p>
+      <button
+        onClick={() => onAddClick(product)}
+        className="bg-transparent border border-[#4A3B32] text-[#4A3B32] px-3 py-1.5
+                   text-[11px] tracking-[0.12em] uppercase font-semibold
+                   hover:bg-[#4A3B32] hover:text-white transition-colors
+                   min-h-[36px]"
+        aria-label={`Add ${product.product_name}`}
+        data-testid={`${testIdPrefix}-add-${product.product_id}`}
+      >
+        Add
+      </button>
+    </div>
+  </div>
+);
+
+// ── Filter helpers ─────────────────────────────────────────────────────────
+
+const applyQuickFilters = (products, activeFilters, searchQuery) => {
+  let result = products;
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    result = result.filter(p =>
+      p.product_name?.toLowerCase().includes(q) ||
+      p.description?.toLowerCase().includes(q)
+    );
+  }
+  if (!activeFilters.length) return result;
+  return result.filter(p => {
+    return activeFilters.every(f => {
+      if (f === 'veg') return p.is_veg === true;
+      if (f === 'nonveg') return p.is_veg === false;
+      if (f === 'bestseller') return p.is_bestseller;
+      if (f === 'on_offer') return p.has_active_offer;
+      if (f === 'rated4') return p.avg_rating >= 4;
+      if (f === 'new') {
+        if (!p.created_at) return false;
+        return (Date.now() - new Date(p.created_at).getTime()) / 86400000 <= 30;
+      }
+      return true;
+    });
+  });
+};
+
+// ── Main page ──────────────────────────────────────────────────────────────
+
 const ProductCatalog = () => {
   const { businessId } = useParams();
   const [searchParams] = useSearchParams();
-  const { addToCart, loading: cartLoading } = useCart();
+  const { addToCart } = useCart();
   const { viewedIds, trackView } = useRecentlyViewed();
   const { recommendations } = useChatContext();
+
   const [business, setBusiness] = useState(null);
-  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [productsByCategory, setProductsByCategory] = useState({});
   const [trending, setTrending] = useState([]);
   const [recommended, setRecommended] = useState([]);
   const [recStrategy, setRecStrategy] = useState('');
   const [recentProducts, setRecentProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const productRefs = useRef({});
 
-  // Read chatbot URL params
+  // Active filter state
+  const [activeFilters, setActiveFilters] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Scroll spy
+  const [activeCategory, setActiveCategory] = useState('');
+
+  // Mobile sidebar drawer
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Product item modal
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  // Section refs for scroll spy
+  const sectionRefs = useRef({});
+  const contentRef = useRef(null);
+
+  // Chatbot URL params (backward compat)
   const highlightProductId = searchParams.get('product');
   const urlKeyword = searchParams.get('keyword');
-  const urlFlavor = searchParams.get('flavor');
-  const urlOccasion = searchParams.get('occasion');
   const urlCategory = searchParams.get('category');
-  const urlPriceMin = searchParams.get('price_min');
-  const urlPriceMax = searchParams.get('price_max');
 
-  // Filter products based on URL params from chatbot
-  const filteredProducts = products.filter(p => {
-    if (urlKeyword) {
-      // Split multi-word keywords and match ANY word against name, description, or attributes
-      const words = urlKeyword.toLowerCase().split(/\s+/).filter(Boolean);
-      const searchText = [
-        p.product_name,
-        p.description,
-        p.attributes?.flavor,
-        p.attributes?.cake_type,
-        p.attributes?.fabric,
-        p.attributes?.metal_type,
-        p.attributes?.design,
-        p.category_id,
-      ].filter(Boolean).join(' ').toLowerCase();
+  // ── Data fetching ──────────────────────────────────────────────────────
 
-      const anyWordMatches = words.some(w => searchText.includes(w));
-      if (!anyWordMatches) return false;
-    }
-    if (urlFlavor) {
-      const fl = urlFlavor.toLowerCase();
-      const searchText = [
-        p.product_name,
-        p.attributes?.flavor,
-        p.attributes?.flavour,
-        p.description,
-      ].filter(Boolean).join(' ').toLowerCase();
-      if (!searchText.includes(fl)) return false;
-    }
-    if (urlOccasion) {
-      const occ = urlOccasion.toLowerCase();
-      const attrOcc = [p.attributes?.occasion, p.description].filter(Boolean).join(' ').toLowerCase();
-      if (!attrOcc.includes(occ)) return false;
-    }
-    if (urlCategory) {
-      const cat = urlCategory.toLowerCase();
-      const catText = [p.category_id, p.product_name, p.description].filter(Boolean).join(' ').toLowerCase();
-      if (!catText.includes(cat)) return false;
-    }
-    if (urlPriceMin && p.base_price < parseFloat(urlPriceMin)) return false;
-    if (urlPriceMax && p.base_price > parseFloat(urlPriceMax)) return false;
-    return true;
-  });
-
-  const displayProducts = (urlKeyword || urlFlavor || urlOccasion || urlCategory || urlPriceMin || urlPriceMax)
-    ? filteredProducts
-    : products;
-
-  // SWR fetcher using apiClient
-  const recFetcher = (url) => apiClient.get(url).then(res => res.data);
+  const recFetcher = url => apiClient.get(url).then(r => r.data);
   const { data: recData } = useSWR(
     `/products/recommended/${businessId}?limit=4`,
     recFetcher,
     { revalidateOnFocus: false, dedupingInterval: 600000 }
   );
 
-  // Seed the SWR cache at login when recommendations are available from ChatContext
   useEffect(() => {
-    if (recommendations && recommendations.length > 0) {
+    if (recommendations?.length > 0) {
       mutate(
         `/products/recommended/${businessId}?limit=4`,
         { recommended: recommendations.map(id => ({ product_id: id })), strategy: 'personalized' },
-        false  // don't revalidate — we trust the login-time data
+        false
       );
     }
   }, [recommendations, businessId]);
 
-  // Derive recommended and recStrategy from SWR data
   useEffect(() => {
     if (recData) {
       setRecommended(recData.recommended || []);
@@ -191,70 +188,176 @@ const ProductCatalog = () => {
   }, [recData]);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchAll = async () => {
       try {
-        // When chatbot filter params are present, fetch all products (up to 200)
-        // so the client-side filter has the full catalog to search through
-        const hasFilterParams = urlKeyword || urlFlavor || urlOccasion || urlCategory || urlPriceMin || urlPriceMax;
-        const productLimit = hasFilterParams ? 200 : 50;
-
-        const [businessRes, productsRes, trendingRes] = await Promise.all([
+        const [bizRes, catsRes, trendingRes, allProductsRes] = await Promise.all([
           apiClient.get(`/businesses/${businessId}`),
-          apiClient.get(`/products?business_id=${businessId}&limit=${productLimit}`),
-          apiClient.get(`/products/trending/${businessId}?limit=4`)
+          apiClient.get(`/categories/${businessId}`),
+          apiClient.get(`/products/trending/${businessId}?limit=4`),
+          // Fetch ALL products at once — no per-category calls
+          apiClient.get(`/products?business_id=${businessId}&limit=200&sort_by=sort_order`),
         ]);
-        setBusiness(businessRes.data);
-        setProducts(productsRes.data.products);
-        setTrending(trendingRes.data.trending);
-      } catch (error) {
-        console.error('Error fetching data:', error);
+        setBusiness(bizRes.data);
+        const cats = catsRes.data.categories || [];
+        setCategories(cats);
+        setTrending(trendingRes.data.trending || []);
+
+        const allProducts = allProductsRes.data.products || [];
+
+        // Group products by category_id client-side
+        const byCategory = {};
+        allProducts.forEach(p => {
+          const cid = p.category_id || 'uncategorized';
+          if (!byCategory[cid]) byCategory[cid] = [];
+          byCategory[cid].push(p);
+        });
+
+        // If categories API returned nothing, build virtual categories from products
+        if (cats.length === 0 && allProducts.length > 0) {
+          const catIds = [...new Set(allProducts.map(p => p.category_id).filter(Boolean))];
+          const virtualCats = catIds.map((cid, i) => ({
+            category_id: cid,
+            display_name: cid.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+            sort_order: i,
+            product_count: byCategory[cid]?.length || 0,
+            is_active: true,
+          }));
+          setCategories(virtualCats);
+        }
+
+        setProductsByCategory(byCategory);
+      } catch (err) {
+        console.error('ProductCatalog fetch error:', err);
       } finally {
         setLoading(false);
       }
     };
-    fetchData();
-  }, [businessId, urlKeyword, urlFlavor, urlOccasion, urlCategory, urlPriceMin, urlPriceMax]);
+    fetchAll();
+  }, [businessId]);
+
+  // Build recently viewed list
+  useEffect(() => {
+    if (!viewedIds.length) return;
+    const allProducts = Object.values(productsByCategory).flat();
+    const productMap = Object.fromEntries(allProducts.map(p => [p.product_id, p]));
+    setRecentProducts(viewedIds.map(id => productMap[id]).filter(Boolean).slice(0, 4));
+  }, [viewedIds, productsByCategory]);
+
+  // ── Scroll spy ──────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (products.length > 0 && viewedIds.length > 0) {
-      const productMap = {};
-      products.forEach(p => { productMap[p.product_id] = p; });
-      setRecentProducts(viewedIds.map(id => productMap[id]).filter(Boolean).slice(0, 4));
+    const observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            setActiveCategory(entry.target.dataset.categoryId);
+          }
+        });
+      },
+      { rootMargin: '-20% 0px -70% 0px', threshold: 0 }
+    );
+    Object.values(sectionRefs.current).forEach(el => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [categories, loading]);
+
+  // Scroll to category section
+  const handleCategoryClick = useCallback(categoryId => {
+    setSidebarOpen(false);
+    const el = sectionRefs.current[categoryId];
+    if (el) {
+      const offset = 200; // account for sticky headers
+      const top = el.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top, behavior: 'smooth' });
     }
-  }, [products, viewedIds]);
+    setActiveCategory(categoryId);
+  }, []);
 
-  const handleProductClick = (productId) => {
-    trackView(productId);
-    apiClient.post('/products/track-view', { product_id: productId, business_id: businessId }).catch(() => {});
+  // ── Filter toggle ────────────────────────────────────────────────────────
+
+  const handleFilterToggle = useCallback(filterId => {
+    setActiveFilters(prev =>
+      prev.includes(filterId) ? prev.filter(f => f !== filterId) : [...prev, filterId]
+    );
+  }, []);
+
+  // ── Modal ────────────────────────────────────────────────────────────────
+
+  const handleAddClick = useCallback(product => {
+    const hasAddons = product.addons && product.addons.length > 0;
+    if (hasAddons) {
+      setSelectedProduct(product);
+      setModalOpen(true);
+    } else {
+      addToCart(product.product_id, null, 1);
+    }
+    trackView(product.product_id);
+    apiClient.post('/products/track-view', {
+      product_id: product.product_id,
+      business_id: businessId,
+    }).catch(() => {});
+  }, [addToCart, trackView, businessId]);
+
+  const handleModalAdd = useCallback(async (product, selectedAddons, totalPrice) => {
+    await addToCart(product.product_id, null, 1, selectedAddons);
+  }, [addToCart]);
+
+  // ── Category section renderer ─────────────────────────────────────────
+
+  const renderCategorySection = (cat) => {
+    const products = productsByCategory[cat.category_id] || [];
+    const filtered = applyQuickFilters(products, activeFilters, searchQuery);
+    // When searching or filtering, skip empty sections silently
+    if (filtered.length === 0 && (activeFilters.length > 0 || searchQuery)) return null;
+
+    return (
+      <section
+        key={cat.category_id}
+        ref={el => { sectionRefs.current[cat.category_id] = el; }}
+        data-category-id={cat.category_id}
+        className="py-6 border-b border-[#E8E0D5] last:border-0"
+        data-testid={`category-section-${cat.category_id}`}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="font-serif text-lg md:text-xl text-[#2C2420]">
+              {cat.icon_emoji && <span className="mr-2" aria-hidden="true">{cat.icon_emoji}</span>}
+              {cat.display_name}
+            </h2>
+            {cat.description && (
+              <p className="text-xs text-[#786A60] mt-0.5">{cat.description}</p>
+            )}
+          </div>
+          <span className="text-xs text-[#786A60] tabular-nums flex-shrink-0 ml-2">
+            {filtered.length} items
+          </span>
+        </div>
+
+        {filtered.length === 0 ? (
+          <p className="text-sm text-[#786A60] py-4">No items match your filters.</p>
+        ) : (
+          <div>
+            {filtered.map(product => (
+              <OrderProductCard
+                key={product.product_id}
+                product={product}
+                onAddClick={handleAddClick}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    );
   };
 
-  // Scroll to and highlight a specific product when ?product= is in URL
-  useEffect(() => {
-    if (!highlightProductId || loading) return;
-    const tryScroll = () => {
-      const el = productRefs.current[highlightProductId];
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    };
-    // Small delay to let the DOM render first
-    const t = setTimeout(tryScroll, 300);
-    return () => clearTimeout(t);
-  }, [highlightProductId, loading, displayProducts]);
-
-  const strategyLabels = {
-    category_match: 'Based on your interests',
-    also_bought: 'Customers also ordered',
-    discovery: 'You might like these',
-    top_rated: 'Our highest rated'
-  };
+  // ── Loading / error states ─────────────────────────────────────────────
 
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col bg-[#FAF8F5]">
-        <BakeryNavbar />
+        <AnnouncementBar businessId={businessId} />
+        <OrderNavbar businessId={businessId} />
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-[#4A3B32]" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#4A3B32]" aria-label="Loading" />
         </div>
       </div>
     );
@@ -263,7 +366,8 @@ const ProductCatalog = () => {
   if (!business) {
     return (
       <div className="min-h-screen flex flex-col bg-[#FAF8F5]">
-        <BakeryNavbar />
+        <AnnouncementBar businessId={businessId} />
+        <OrderNavbar businessId={businessId} />
         <div className="flex-1 flex items-center justify-center">
           <p className="text-[#786A60] font-sans">Business not found</p>
         </div>
@@ -271,186 +375,203 @@ const ProductCatalog = () => {
     );
   }
 
+  const strategyLabels = {
+    category_match: 'Based on your interests',
+    also_bought: 'Customers also ordered',
+    discovery: 'You might like these',
+    top_rated: 'Our highest rated',
+    personalized: 'Handpicked for you',
+  };
+
+  const topLevelCategories = categories.filter(c => !c.parent_category_id);
+
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F5]">
-      <BakeryNavbar />
+      <AnnouncementBar businessId={businessId} />
+      <OrderNavbar businessId={businessId} business={business} />
+      <ProductFiltersBar
+        activeFilters={activeFilters}
+        onFilterToggle={handleFilterToggle}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
 
-      {/* Hero */}
-      <section className="relative h-[50vh] min-h-[400px] overflow-hidden" data-testid="catalog-header">
-        <img
-          src="https://images.unsplash.com/photo-1774758951271-e0886de596f7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MDZ8MHwxfHNlYXJjaHwxfHxhcnRpc2FuJTIwYmFrZXJ5JTIwcGFzdHJpZXMlMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzc3NjE4NjEyfDA&ixlib=rb-4.1.0&q=85"
-          alt="Whisked Words Bakery"
-          className="absolute inset-0 w-full h-full object-cover"
-          aria-hidden="true"
+      {/* Mobile category chip strip */}
+      <div className="lg:hidden sticky top-[110px] z-30">
+        <CategoryChipStrip
+          categories={categories}
+          activeCategory={activeCategory}
+          onCategoryClick={handleCategoryClick}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#2C2420]/80 via-[#2C2420]/30 to-transparent" />
-        <div className="relative z-10 h-full flex flex-col justify-end max-w-7xl mx-auto px-6 md:px-12 pb-16">
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}>
-            <p className="text-xs tracking-[0.3em] uppercase text-[#D4A373] font-semibold mb-3">Artisan Bakery</p>
-            <h1 className="font-serif text-5xl md:text-6xl lg:text-7xl text-[#FAF8F5] leading-none mb-4 italic">
-              {business.business_name}
-            </h1>
-            <p className="text-base text-[#FAF8F5]/70 font-sans max-w-md">{business.description}</p>
-          </motion.div>
-        </div>
-      </section>
+      </div>
 
-      {/* Marquee */}
-      <div className="bg-[#F3EFEA] py-3 border-y border-[#E8E0D5]">
-        <Marquee speed={30} gradient={false}>
-          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Fresh pastries daily</span>
-          <span className="text-[#D4A373] mx-4">&bull;</span>
-          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Custom cakes for every occasion</span>
-          <span className="text-[#D4A373] mx-4">&bull;</span>
-          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Handcrafted with love</span>
-          <span className="text-[#D4A373] mx-4">&bull;</span>
-          <span className="text-sm tracking-[0.2em] uppercase text-[#4A3B32] font-serif mx-12">Subscribe for weekly deliveries</span>
-          <span className="text-[#D4A373] mx-4">&bull;</span>
+      {/* Hero marquee */}
+      <div className="bg-[#F3EFEA] py-2 border-b border-[#E8E0D5]">
+        <Marquee speed={25} gradient={false}>
+          {['Fresh pastries daily', 'Custom cakes for every occasion', 'Handcrafted with love', 'Subscribe for weekly deliveries'].map((text, i) => (
+            <span key={i} className="flex items-center">
+              <span className="text-xs tracking-[0.18em] uppercase text-[#4A3B32] font-serif mx-10">{text}</span>
+              <span className="text-[#D4A373] mx-2" aria-hidden="true">&bull;</span>
+            </span>
+          ))}
         </Marquee>
       </div>
 
-      {/* Trending Now */}
-      {trending.length > 0 && (
-        <section className="py-20 md:py-28" data-testid="trending-section">
-          <div className="max-w-7xl mx-auto px-6 md:px-12">
-            <SectionHeader icon={TrendingUp} title="Trending Now" subtitle="Bestsellers ranked by popularity" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-              {trending.map((product, index) => (
-                <CompactCard key={product.product_id} product={product} onAddToCart={addToCart} cartLoading={cartLoading} rankBadge={index + 1} testIdPrefix="trending" />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+      {/* Main layout */}
+      <div className="flex flex-1 max-w-7xl mx-auto w-full">
+        {/* Desktop sidebar */}
+        <div className="hidden lg:block">
+          <CategorySidebar
+            categories={categories}
+            activeCategory={activeCategory}
+            onCategoryClick={handleCategoryClick}
+          />
+        </div>
 
-      {/* Recently Viewed */}
-      {recentProducts.length > 0 && (
-        <section className="py-20 md:py-28 bg-white border-y border-[#E8E0D5]" data-testid="recently-viewed-section">
-          <div className="max-w-7xl mx-auto px-6 md:px-12">
-            <SectionHeader icon={Clock} title="Recently Viewed" subtitle="Pick up where you left off" iconBg="bg-[#786A60]" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-              {recentProducts.map((product) => (
-                <CompactCard key={product.product_id} product={product} onAddToCart={addToCart} cartLoading={cartLoading} testIdPrefix="recent" />
-              ))}
+        {/* Mobile sidebar drawer overlay */}
+        {sidebarOpen && (
+          <>
+            <div
+              className="lg:hidden fixed inset-0 bg-black/40 z-40"
+              onClick={() => setSidebarOpen(false)}
+              aria-hidden="true"
+            />
+            <div className="lg:hidden fixed left-0 top-0 bottom-0 w-72 z-50 bg-white shadow-xl overflow-y-auto">
+              <div className="flex items-center justify-between p-4 border-b border-[#E8E0D5]">
+                <p className="font-semibold text-[#2C2420]">Menu</p>
+                <button onClick={() => setSidebarOpen(false)} aria-label="Close menu"
+                  className="p-2 text-[#786A60]">✕</button>
+              </div>
+              <CategorySidebar
+                categories={categories}
+                activeCategory={activeCategory}
+                onCategoryClick={handleCategoryClick}
+              />
             </div>
-          </div>
-        </section>
-      )}
+          </>
+        )}
 
-      {/* Recommended For You */}
-      {recommended.length > 0 && (
-        <section className="py-20 md:py-28" data-testid="recommended-section">
-          <div className="max-w-7xl mx-auto px-6 md:px-12">
-            <SectionHeader icon={Sparkles} title="Recommended For You" subtitle={strategyLabels[recStrategy] || 'Handpicked for you'} iconBg="bg-[#D4A373]" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-              {recommended.map((product) => (
-                <CompactCard key={product.product_id} product={product} onAddToCart={addToCart} cartLoading={cartLoading} testIdPrefix="recommended" />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+        {/* Content area */}
+        <main ref={contentRef} className="flex-1 px-4 md:px-6 lg:px-8 py-4" data-testid="catalog-main">
 
-      {/* All Products */}
-      <main className="py-20 md:py-28 bg-white border-t border-[#E8E0D5]" data-testid="products-section">
-        <div className="max-w-7xl mx-auto px-6 md:px-12">
-          <div className="flex items-end justify-between mb-14">
-            <div>
-              <h2 className="font-serif text-3xl md:text-4xl text-[#2C2420] mb-2">
-                {displayProducts.length < products.length ? 'Filtered Results' : 'All Products'}
-              </h2>
-              <p className="text-sm text-[#786A60]">{displayProducts.length} items{displayProducts.length < products.length ? ` of ${products.length}` : ''}</p>
-              {/* Active filter banner from chatbot URL params */}
-              {(urlKeyword || urlFlavor || urlOccasion || urlCategory) && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {urlKeyword && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">"{urlKeyword}"</span>}
-                  {urlFlavor && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">Flavor: {urlFlavor}</span>}
-                  {urlOccasion && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">Occasion: {urlOccasion}</span>}
-                  {urlCategory && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">Category: {urlCategory}</span>}
-                  {(urlPriceMin || urlPriceMax) && <span className="text-xs bg-[#F3EFEA] border border-[#D4A373] text-[#4A3B32] px-3 py-1 rounded-sm">₹{urlPriceMin || '0'} – ₹{urlPriceMax || '∞'}</span>}
-                  <Link to={`/business/${businessId}/catalog`} className="text-xs text-[#786A60] underline px-2 py-1 hover:text-[#4A3B32]">Clear filters</Link>
+          {/* Trending section */}
+          {trending.length > 0 && !activeFilters.length && !searchQuery && (
+            <section className="mb-6" data-testid="trending-section">
+              <SectionHeader icon={TrendingUp} title="Trending Now" subtitle="Bestsellers ranked by popularity" />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
+                {trending.map((p, i) => (
+                  <CompactCard key={p.product_id} product={p} onAddClick={handleAddClick}
+                    rankBadge={i + 1} testIdPrefix="trending" />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Recently viewed */}
+          {recentProducts.length > 0 && !activeFilters.length && !searchQuery && (
+            <section className="mb-6 bg-white py-6 px-4 -mx-4 md:-mx-6 lg:-mx-8 border-y border-[#E8E0D5]"
+                     data-testid="recently-viewed-section">
+              <div className="max-w-none">
+                <SectionHeader icon={Clock} title="Recently Viewed" subtitle="Pick up where you left off"
+                  iconBg="bg-[#786A60]" />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
+                  {recentProducts.map(p => (
+                    <CompactCard key={p.product_id} product={p} onAddClick={handleAddClick}
+                      testIdPrefix="recent" />
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Recommended */}
+          {recommended.length > 0 && !activeFilters.length && !searchQuery && (
+            <section className="mb-6" data-testid="recommended-section">
+              <SectionHeader icon={Sparkles} title="Recommended For You"
+                subtitle={strategyLabels[recStrategy] || 'Handpicked for you'}
+                iconBg="bg-[#D4A373]" />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
+                {recommended.map(p => (
+                  <CompactCard key={p.product_id} product={p} onAddClick={handleAddClick}
+                    testIdPrefix="recommended" />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Category sections — fully API-driven */}
+          {topLevelCategories.length > 0 ? (
+            <>
+              {topLevelCategories.map(cat => renderCategorySection(cat))}
+              {/* Global no-results message when all sections are empty */}
+              {(activeFilters.length > 0 || searchQuery) &&
+               topLevelCategories.every(cat => {
+                 const filtered = applyQuickFilters(productsByCategory[cat.category_id] || [], activeFilters, searchQuery);
+                 return filtered.length === 0;
+               }) && (
+                <div className="text-center py-20">
+                  <Package size={40} className="mx-auto text-[#786A60] mb-3" strokeWidth={1} />
+                  <p className="text-[#786A60] font-serif text-lg">No products match your filters.</p>
+                  <button
+                    onClick={() => { setActiveFilters([]); setSearchQuery(''); }}
+                    className="mt-3 text-sm text-[#4A3B32] underline"
+                    data-testid="clear-filters-btn"
+                  >
+                    Clear all filters
+                  </button>
                 </div>
               )}
+            </>
+          ) : (
+            <div className="text-center py-20">
+              <Package size={40} className="mx-auto text-[#786A60] mb-3" strokeWidth={1} />
+              <p className="text-[#786A60] font-serif text-lg">No products found.</p>
             </div>
-            {businessId === 'whisked_words' && (
+          )}
+
+          {/* Custom cake CTA */}
+          {businessId === 'whisked_words' && (
+            <div className="mt-8 mb-20 p-6 bg-[#F3EFEA] border border-[#E8E0D5] text-center">
+              <p className="font-serif text-lg text-[#2C2420] mb-2">Want something custom?</p>
+              <p className="text-sm text-[#786A60] mb-4">Design your perfect cake for any occasion.</p>
               <Link
                 to={`/business/${businessId}/custom-order`}
-                className="bg-[#4A3B32] text-white px-8 py-4 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors duration-300 flex items-center gap-2"
-                data-testid="custom-cake-order-button"
+                className="inline-block bg-[#4A3B32] text-white px-8 py-3 text-xs tracking-[0.15em]
+                           uppercase font-semibold hover:bg-[#332822] transition-colors"
+                data-testid="custom-cake-cta"
               >
                 Custom Cake Order
               </Link>
-            )}
-          </div>
-
-          {displayProducts.length === 0 ? (
-            <div className="text-center py-32">
-              <Package size={48} className="mx-auto text-[#786A60] mb-4" strokeWidth={1} />
-              <p className="text-[#786A60] font-serif text-xl">No products match your search.</p>
-              <Link to={`/business/${businessId}/catalog`} className="mt-4 inline-block text-sm text-[#4A3B32] underline">Show all products</Link>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10 lg:gap-16">
-              {displayProducts.map((product, i) => (
-                <motion.div
-                  key={product.product_id}
-                  ref={el => { productRefs.current[product.product_id] = el; }}
-                  variants={fadeUp}
-                  custom={i}
-                  initial="hidden"
-                  whileInView="visible"
-                  viewport={{ once: true }}
-                  className={`group ${highlightProductId === product.product_id ? 'ring-2 ring-[#D4A373] ring-offset-4' : ''}`}
-                  data-testid={`product-card-${product.product_id}`}
-                >
-                  {/* Product Image - Editorial */}
-                  <div className="relative aspect-[4/5] overflow-hidden mb-5">
-                    {product.images?.[0]?.url ? (
-                      <img src={product.images[0].url} alt={product.product_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" />
-                    ) : (
-                      <div className="w-full h-full bg-[#F3EFEA] flex items-center justify-center">
-                        <Package size={48} className="text-[#786A60]" strokeWidth={1} />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Product Details */}
-                  <h3 className="font-serif text-xl text-[#2C2420] mb-2">{product.product_name}</h3>
-                  <p className="text-sm text-[#786A60] leading-relaxed mb-4 line-clamp-2">{product.description}</p>
-
-                  <div className="flex items-center justify-between pt-4 border-t border-[#E8E0D5]">
-                    <p className="text-lg font-semibold text-[#2C2420]">
-                      ₹{product.base_price.toLocaleString()}
-                    </p>
-                    <button
-                      onClick={() => addToCart(product.product_id, null, 1)}
-                      disabled={cartLoading}
-                      className="bg-[#4A3B32] text-white px-6 py-3 text-[11px] tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors duration-300 flex items-center gap-2 disabled:opacity-50"
-                      data-testid={`add-to-cart-${product.product_id}`}
-                    >
-                      <ShoppingCart size={14} />
-                      Add to Cart
-                    </button>
-                  </div>
-
-                  {/* Reviews Link */}
-                  <Link
-                    to={`/reviews/${product.product_id}`}
-                    onClick={() => handleProductClick(product.product_id)}
-                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[#D4A373] hover:text-[#4A3B32] transition-colors"
-                    data-testid={`reviews-link-${product.product_id}`}
-                  >
-                    <Star size={12} />
-                    View Reviews
-                  </Link>
-                </motion.div>
-              ))}
             </div>
           )}
-        </div>
-      </main>
+
+          {/* Bottom padding for floating cart bar */}
+          <div className="h-20 lg:h-0" />
+        </main>
+      </div>
+
+      {/* Mobile menu FAB */}
+      <button
+        onClick={() => setSidebarOpen(true)}
+        className="lg:hidden fixed left-4 bottom-20 z-30 bg-[#4A3B32] text-white
+                   px-4 py-2.5 shadow-lg flex items-center gap-2 text-sm font-medium
+                   pb-[calc(10px+env(safe-area-inset-bottom))]"
+        aria-label="Browse menu categories"
+        data-testid="mobile-menu-fab"
+      >
+        <MenuIcon size={16} />
+        Menu
+      </button>
+
+      <ProductItemModal
+        product={selectedProduct}
+        isOpen={modalOpen}
+        onClose={() => { setModalOpen(false); setSelectedProduct(null); }}
+        onAddToCart={handleModalAdd}
+      />
 
       <ChatWidget businessId={businessId} businessName={business?.business_name || ''} />
+      <FloatingCartBar />
       <BakeryFooter />
     </div>
   );

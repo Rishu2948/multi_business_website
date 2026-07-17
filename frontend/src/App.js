@@ -28,6 +28,13 @@ import StaffDashboard from './pages/StaffDashboard';
 import AdminOrdersDashboard from './pages/AdminOrdersDashboard';
 import DeliveryDashboard from './pages/DeliveryDashboard';
 import OrderTrackingPage from './pages/OrderTrackingPage';
+import CategoryManager from './pages/admin/CategoryManager';
+import StoreConfigManager from './pages/admin/StoreConfigManager';
+import OffersManager from './pages/admin/OffersManager';
+import AnnouncementManager from './pages/admin/AnnouncementManager';
+import CollectionManager from './pages/admin/CollectionManager';
+import CollectionsPage from './pages/CollectionsPage';
+import ProductManager from './pages/admin/ProductManager';
 
 function AppRouter() {
   const location = useLocation();
@@ -62,6 +69,69 @@ function AppRouter() {
       
       {/* Order Tracking */}
       <Route path="/track/:orderId" element={<OrderTrackingPage />} />
+
+      {/* Collections — customer-facing */}
+      <Route path="/business/:businessId/collections/:collectionId" element={<CollectionsPage />} />
+
+      {/* Admin — Category Manager */}
+      <Route
+        path="/admin/categories"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <CategoryManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Store Config */}
+      <Route
+        path="/admin/store-config"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <StoreConfigManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Offers Manager */}
+      <Route
+        path="/admin/offers"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <OffersManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Announcement Manager */}
+      <Route
+        path="/admin/announcements"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <AnnouncementManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Collection Manager */}
+      <Route
+        path="/admin/collections"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <CollectionManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Product Manager */}
+      <Route
+        path="/admin/products"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <ProductManager />
+          </ProtectedRoute>
+        }
+      />
       
       {/* Admin Order Management */}
       <Route

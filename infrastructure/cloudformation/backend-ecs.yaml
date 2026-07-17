@@ -26,10 +26,10 @@ Parameters:
     Default: 1
   ContainerCpu:
     Type: String
-    Default: '512'
+    Default: '1024'
   ContainerMemory:
     Type: String
-    Default: '1024'
+    Default: '2048'
   AcmCertificateArn:
     Type: String
     Default: ''
@@ -240,6 +240,9 @@ Resources:
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !Ref DesiredCount
       LaunchType: FARGATE
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
