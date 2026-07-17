@@ -6,7 +6,7 @@ import { useCart } from '../../context/CartContext';
 import apiClient, { API_URL } from '../../utils/api';
 import {
   LogOut, User, ShoppingCart, Award, RefreshCw, Package,
-  Bell, Menu, X,
+  Bell, Menu, X, Crown,
 } from 'lucide-react';
 
 const BakeryNavbar = ({ businessId }) => {
@@ -19,6 +19,7 @@ const BakeryNavbar = ({ businessId }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isPrime, setIsPrime] = useState(false);
   const notifRef = useRef(null);
   const sseRef = useRef(null);
 
@@ -33,6 +34,23 @@ const BakeryNavbar = ({ businessId }) => {
       setUnreadCount(res.data.unread_count);
     } catch {}
   }, [isAuthenticated]);
+
+  // Check Prime status for current business
+  useEffect(() => {
+    if (!isAuthenticated || !businessId) return;
+
+    const checkPrimeStatus = async () => {
+      try {
+        const res = await apiClient.get(`/prime/upgrade-info/${businessId}`);
+        const membership = res.data.membership;
+        setIsPrime(membership && membership.status === 'active');
+      } catch (err) {
+        setIsPrime(false);
+      }
+    };
+
+    checkPrimeStatus();
+  }, [isAuthenticated, businessId]);
 
   // SSE + polling fallback
   useEffect(() => {
@@ -111,6 +129,7 @@ const BakeryNavbar = ({ businessId }) => {
         { to: '/my-orders', label: 'My Orders', icon: <Package size={14} />, testId: 'nav-my-orders' },
         { to: '/loyalty', label: 'Rewards', icon: <Award size={14} />, testId: 'nav-loyalty' },
         { to: '/subscriptions', label: 'Subscribe', icon: <RefreshCw size={13} />, testId: 'nav-subscriptions' },
+        { to: `/prime?business_id=${bizId}`, label: 'Prime', icon: <Crown size={13} />, testId: 'nav-prime', isPrime },
       ]
     : [];
 
@@ -164,11 +183,14 @@ const BakeryNavbar = ({ businessId }) => {
                 <Link
                   key={link.to}
                   to={link.to}
-                  className={`hidden lg:flex items-center gap-1.5 ${linkClass(link.to)}`}
+                  className={`hidden lg:flex items-center gap-1.5 ${linkClass(link.to)} ${link.isPrime ? 'text-[#D4A373]' : ''}`}
                   data-testid={link.testId}
                 >
                   {link.icon}
                   {link.label}
+                  {link.isPrime && (
+                    <span className="w-2 h-2 bg-[#D4A373] rounded-full animate-pulse" />
+                  )}
                 </Link>
               ))}
 
@@ -337,6 +359,9 @@ const BakeryNavbar = ({ businessId }) => {
                   >
                     {link.icon && <span className="text-[#786A60]">{link.icon}</span>}
                     {link.label}
+                    {link.isPrime && (
+                      <span className="w-2 h-2 bg-[#D4A373] rounded-full animate-pulse ml-auto" />
+                    )}
                   </Link>
                 ))}
 
@@ -349,6 +374,9 @@ const BakeryNavbar = ({ businessId }) => {
                     {[
                       { to: '/admin/categories', label: 'Category Manager' },
                       { to: '/admin/store-config', label: 'Store Config' },
+                      ...(user?.role === 'super_admin'
+                        ? [{ to: '/admin/business-config', label: 'Business Config' }]
+                        : []),
                       { to: '/admin/offers', label: 'Offers' },
                       { to: '/admin/announcements', label: 'Announcements' },
                       { to: '/admin/collections', label: 'Collections' },

@@ -5,7 +5,7 @@ import Navbar from '../components/common/Navbar';
 import apiClient from '../utils/api';
 import {
   Package, TrendingUp, Users, AlertTriangle, Store,
-  Tag, Megaphone, Layers, LayoutGrid, Settings,
+  Tag, Megaphone, Layers, LayoutGrid, Settings, Crown, Shield,
 } from 'lucide-react';
 
 const SuperAdminDashboard = () => {
@@ -240,6 +240,20 @@ const SuperAdminDashboard = () => {
                 <Store size={28} className="text-primary mb-3" strokeWidth={1.5} />
                 <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">STORE CONFIG</h3>
                 <p className="text-xs text-muted">Business hours, order types, delivery settings, tax rate.</p>
+              </Link>
+              <Link to="/admin/business-config"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-business-config">
+                <Crown size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">BUSINESS CONFIG</h3>
+                <p className="text-xs text-muted">Prime membership settings, plans, and feature access.</p>
+              </Link>
+              <Link to="/admin/prime-memberships/whisked_words"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-prime-memberships">
+                <Shield size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">PRIME MEMBERSHIPS</h3>
+                <p className="text-xs text-muted">View and manage Prime subscriptions for customers.</p>
               </Link>
               <Link to="/admin/offers"
                 className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"

@@ -24,7 +24,7 @@ import ChatPanel from './ChatPanel';
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 10.7, 10.8
  */
 const ChatWidget = ({ businessId, businessName }) => {
-  const { is_prime } = useChatContext();
+  const { hasPrimeFeature, is_prime, fetchBusinessFeatures } = useChatContext();
   const { user, isAuthenticated } = useAuth();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -33,6 +33,14 @@ const ChatWidget = ({ businessId, businessName }) => {
   );
 
   const fabRef = useRef(null);
+
+  // ── Fetch business features on mount and business change ───────────────────
+
+  useEffect(() => {
+    if (businessId) {
+      fetchBusinessFeatures(businessId);
+    }
+  }, [businessId, fetchBusinessFeatures]);
 
   // ── Responsive viewport detection ─────────────────────────────────────────
 
@@ -61,10 +69,11 @@ const ChatWidget = ({ businessId, businessName }) => {
   }
 
   const authorizedRoles = ['super_admin', 'business_admin', 'staff'];
+  const hasAiChatbotAccess = hasPrimeFeature(businessId, 'ai_chatbot');
   const isAuthorized =
     authorizedRoles.includes(user.role) ||
-    (user.role === 'customer' && is_prime === true);
-  const isLocked = user.role === 'customer' && is_prime !== true;
+    (user.role === 'customer' && hasAiChatbotAccess);
+  const isLocked = user.role === 'customer' && !hasAiChatbotAccess;
 
   // ── Shared FAB styles ─────────────────────────────────────────────────────
 
@@ -98,7 +107,7 @@ const ChatWidget = ({ businessId, businessName }) => {
     return (
       <div style={fabBaseStyle}>
         <a
-          href="/prime"
+          href={`/prime?business_id=${businessId}`}
           aria-label="Upgrade to Prime to use the AI assistant"
           title="Upgrade to Prime to use the AI assistant"
           className={[

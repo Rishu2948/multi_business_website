@@ -7,7 +7,7 @@ import AddProductModal from '../components/AddProductModal';
 import apiClient from '../utils/api';
 import {
   Package, AlertTriangle, TrendingUp, Plus, Edit, Trash2,
-  Tag, Megaphone, Layers, Store, LayoutGrid
+  Tag, Megaphone, Layers, Store, LayoutGrid, Crown
 } from 'lucide-react';
 
 const BusinessAdminDashboard = () => {
@@ -317,6 +317,18 @@ const BusinessAdminDashboard = () => {
                   STORE CONFIG
                 </h3>
                 <p className="text-xs text-muted">Business hours, order types, delivery settings, tax rate.</p>
+              </Link>
+
+              <Link
+                to={`/admin/business-config/${selectedBusiness.business_id}`}
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-business-config"
+              >
+                <Crown size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">
+                  BUSINESS CONFIG
+                </h3>
+                <p className="text-xs text-muted">Prime membership settings, plans, and feature access.</p>
               </Link>
 
               <Link
