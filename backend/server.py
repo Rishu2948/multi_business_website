@@ -1380,7 +1380,7 @@ async def ensure_new_indexes() -> None:
         background=True, name="products_business_offer_idx"
     )
     await db.products.create_index(
-        [("product_name", "text"), ("description", "text")],
+        [("business_id", 1), ("product_name", "text"), ("description", "text")],
         background=True, name="products_text_search_idx"
     )
     # offers
