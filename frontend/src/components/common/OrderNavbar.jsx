@@ -79,14 +79,24 @@ const OrderNavbar = ({ businessId: propBusinessId, business }) => {
             className="text-sm font-medium text-[#2C2420]">
             Order Now
           </Link>
-          <Link to={`/loyalty`}
+          <Link to="/loyalty"
             className="text-sm text-[#786A60] hover:text-[#2C2420] transition-colors">
             Loyalty
           </Link>
-          <Link to={`/subscriptions`}
+          <Link to="/subscriptions"
             className="text-sm text-[#786A60] hover:text-[#2C2420] transition-colors">
             Subscriptions
           </Link>
+          {/* Admin Dashboard link — only shown for admin roles */}
+          {user && (user.role === 'super_admin' || user.role === 'business_admin') && (
+            <Link
+              to={user.role === 'super_admin' ? '/super-admin' : '/admin'}
+              className="text-sm font-semibold text-[#D4A373] hover:text-[#4A3B32] transition-colors border border-[#D4A373] px-3 py-1 rounded-sm"
+              data-testid="navbar-dashboard-link"
+            >
+              Dashboard
+            </Link>
+          )}
         </nav>
 
         {/* Right controls */}

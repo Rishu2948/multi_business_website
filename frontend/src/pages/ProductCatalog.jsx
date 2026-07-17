@@ -190,26 +190,41 @@ const ProductCatalog = () => {
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [bizRes, catsRes, trendingRes] = await Promise.all([
+        const [bizRes, catsRes, trendingRes, allProductsRes] = await Promise.all([
           apiClient.get(`/businesses/${businessId}`),
           apiClient.get(`/categories/${businessId}`),
           apiClient.get(`/products/trending/${businessId}?limit=4`),
+          // Fetch ALL products at once — no per-category calls
+          apiClient.get(`/products?business_id=${businessId}&limit=200&sort_by=sort_order`),
         ]);
         setBusiness(bizRes.data);
         const cats = catsRes.data.categories || [];
         setCategories(cats);
         setTrending(trendingRes.data.trending || []);
 
-        // Fetch products per category in parallel (top-level only)
-        const topLevel = cats.filter(c => !c.parent_category_id);
-        const productPromises = topLevel.map(cat =>
-          apiClient.get(`/products?business_id=${businessId}&category_id=${cat.category_id}&limit=50`)
-            .then(r => ({ category_id: cat.category_id, products: r.data.products || [] }))
-            .catch(() => ({ category_id: cat.category_id, products: [] }))
-        );
-        const results = await Promise.all(productPromises);
+        const allProducts = allProductsRes.data.products || [];
+
+        // Group products by category_id client-side
         const byCategory = {};
-        results.forEach(r => { byCategory[r.category_id] = r.products; });
+        allProducts.forEach(p => {
+          const cid = p.category_id || 'uncategorized';
+          if (!byCategory[cid]) byCategory[cid] = [];
+          byCategory[cid].push(p);
+        });
+
+        // If categories API returned nothing, build virtual categories from products
+        if (cats.length === 0 && allProducts.length > 0) {
+          const catIds = [...new Set(allProducts.map(p => p.category_id).filter(Boolean))];
+          const virtualCats = catIds.map((cid, i) => ({
+            category_id: cid,
+            display_name: cid.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+            sort_order: i,
+            product_count: byCategory[cid]?.length || 0,
+            is_active: true,
+          }));
+          setCategories(virtualCats);
+        }
+
         setProductsByCategory(byCategory);
       } catch (err) {
         console.error('ProductCatalog fetch error:', err);
@@ -291,6 +306,7 @@ const ProductCatalog = () => {
   const renderCategorySection = (cat) => {
     const products = productsByCategory[cat.category_id] || [];
     const filtered = applyQuickFilters(products, activeFilters, searchQuery);
+    // When searching or filtering, skip empty sections silently
     if (filtered.length === 0 && (activeFilters.length > 0 || searchQuery)) return null;
 
     return (
@@ -485,7 +501,27 @@ const ProductCatalog = () => {
 
           {/* Category sections — fully API-driven */}
           {topLevelCategories.length > 0 ? (
-            topLevelCategories.map(cat => renderCategorySection(cat))
+            <>
+              {topLevelCategories.map(cat => renderCategorySection(cat))}
+              {/* Global no-results message when all sections are empty */}
+              {(activeFilters.length > 0 || searchQuery) &&
+               topLevelCategories.every(cat => {
+                 const filtered = applyQuickFilters(productsByCategory[cat.category_id] || [], activeFilters, searchQuery);
+                 return filtered.length === 0;
+               }) && (
+                <div className="text-center py-20">
+                  <Package size={40} className="mx-auto text-[#786A60] mb-3" strokeWidth={1} />
+                  <p className="text-[#786A60] font-serif text-lg">No products match your filters.</p>
+                  <button
+                    onClick={() => { setActiveFilters([]); setSearchQuery(''); }}
+                    className="mt-3 text-sm text-[#4A3B32] underline"
+                    data-testid="clear-filters-btn"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-20">
               <Package size={40} className="mx-auto text-[#786A60] mb-3" strokeWidth={1} />

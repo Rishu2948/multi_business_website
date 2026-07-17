@@ -99,7 +99,10 @@ const CartPage = () => {
                           <p className="text-sm font-semibold text-[#2C2420] mt-1">₹{itemTotal.toLocaleString()}</p>
                           <div className="flex items-center gap-3 mt-2">
                             <div className="flex items-center border border-[#E8E0D5]">
-                              <button onClick={() => updateQuantity(item.product_id, null, Math.max(1, item.quantity - 1))}
+                              <button onClick={() => {
+                                  if (item.quantity <= 1) removeFromCart(item.product_id);
+                                  else updateQuantity(item.product_id, null, item.quantity - 1);
+                                }}
                                 disabled={loading}
                                 className="px-2 py-1.5 text-[#4A3B32] hover:bg-[#F3EFEA] min-h-[36px]"
                                 data-testid={`decrease-qty-${item.product_id}`}>
@@ -147,7 +150,10 @@ const CartPage = () => {
                         </div>
                         <div className="col-span-2 flex justify-center">
                           <div className="flex items-center border border-[#E8E0D5]">
-                            <button onClick={() => updateQuantity(item.product_id, null, Math.max(1, item.quantity - 1))}
+                            <button onClick={() => {
+                                if (item.quantity <= 1) removeFromCart(item.product_id);
+                                else updateQuantity(item.product_id, null, item.quantity - 1);
+                              }}
                               disabled={loading}
                               className="px-3 py-2 text-[#4A3B32] hover:bg-[#F3EFEA]"
                               data-testid={`decrease-qty-${item.product_id}`}>
