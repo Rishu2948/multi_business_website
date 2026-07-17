@@ -3,11 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import BakeryNavbar from '../components/common/BakeryNavbar';
 import BakeryFooter from '../components/common/BakeryFooter';
+import AnnouncementBar from '../components/common/AnnouncementBar';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../utils/api';
 import { toast } from 'sonner';
-import { CreditCard, Truck, Wallet, MapPin, Home, Briefcase, Plus, Navigation, Check, Trash2, Star } from 'lucide-react';
+import {
+  CreditCard, Truck, Wallet, MapPin, Home, Briefcase,
+  Plus, Navigation, Check, Trash2, Star, Tag, X, ChevronDown, ChevronUp,
+} from 'lucide-react';
 
 const LABELS = [
   { value: 'Home', icon: Home },
@@ -28,14 +32,61 @@ const CheckoutPage = () => {
   const [savingAddress, setSavingAddress] = useState(false);
   const [newLabel, setNewLabel] = useState('Home');
   const [saveAsDefault, setSaveAsDefault] = useState(false);
+  // Offer code state
+  const [promoCode, setPromoCode] = useState('');
+  const [promoInput, setPromoInput] = useState('');
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [appliedOffer, setAppliedOffer] = useState(null);
+  const [discountAmount, setDiscountAmount] = useState(0);
   const [locating, setLocating] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
+  // Accordion state for mobile sections
+  const [openSection, setOpenSection] = useState('delivery'); // 'delivery' | 'payment' | 'review'
+  const toggleSection = (s) => setOpenSection(prev => prev === s ? '' : s);
 
   const items = cart?.items || [];
   const subtotal = cart?.total_amount || 0;
   const tax = Math.round(subtotal * 0.05 * 100) / 100;
   const deliveryCharge = subtotal >= 500 ? 0 : 50;
-  const total = subtotal + tax + deliveryCharge;
+  const total = Math.max(0, subtotal + tax + deliveryCharge - discountAmount);
+
+  const handleApplyPromo = async () => {
+    if (!promoInput.trim()) return;
+    setPromoLoading(true);
+    try {
+      const r = await apiClient.post('/offers/validate', {
+        business_id: 'whisked_words',
+        promo_code: promoInput.trim().toUpperCase(),
+        cart_total: subtotal,
+        cart_items: items.map(i => ({
+          product_id: i.product_id,
+          category_id: i.category_id || '',
+          quantity: i.quantity,
+          price: i.price,
+        })),
+        user_id: null,
+      });
+      if (r.data.is_valid) {
+        setAppliedOffer(r.data.offer);
+        setDiscountAmount(r.data.discount_amount);
+        setPromoCode(promoInput.trim().toUpperCase());
+        toast.success(r.data.message);
+      } else {
+        toast.error(r.data.message);
+      }
+    } catch {
+      toast.error('Failed to validate promo code');
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedOffer(null);
+    setDiscountAmount(0);
+    setPromoCode('');
+    setPromoInput('');
+  };
 
   const inputClass = "w-full border border-[#E8E0D5] px-4 py-3 focus:ring-1 focus:ring-[#4A3B32] focus:border-[#4A3B32] transition-all outline-none bg-white text-[#2C2420] text-sm";
 
@@ -133,8 +184,12 @@ const CheckoutPage = () => {
     setSubmitting(true);
     try {
       const orderPayload = {
-        items: items.map(item => ({ product_id: item.product_id, variant_id: null, product_name: item.product_name, quantity: item.quantity, price: item.price, subtotal: item.price * item.quantity })),
-        delivery_info: delivery, payment_method: paymentMethod, subtotal, tax, delivery_charge: deliveryCharge, total
+        items: items.map(item => ({ product_id: item.product_id, variant_id: null, product_name: item.product_name, quantity: item.quantity, price: item.price, subtotal: item.price * item.quantity, addons_price: item.addons_price || 0, selected_addons: item.selected_addons || [] })),
+        delivery_info: delivery, payment_method: paymentMethod, subtotal, tax, delivery_charge: deliveryCharge,
+        discount_amount: discountAmount,
+        promo_code: promoCode || null,
+        offer_id: appliedOffer?.offer_id || null,
+        total,
       };
 
       if (paymentMethod === 'stripe') {
@@ -163,6 +218,7 @@ const CheckoutPage = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F5]" data-testid="checkout-page">
+      <AnnouncementBar businessId="whisked_words" />
       <BakeryNavbar />
 
       <main className="flex-1 py-16 md:py-24">
@@ -178,13 +234,45 @@ const CheckoutPage = () => {
               <div className="lg:col-span-7 space-y-10">
                 {/* Saved Addresses */}
                 {isAuthenticated && (
-                  <div className="bg-white border border-[#E8E0D5] p-8" data-testid="saved-addresses-section">
-                    <div className="flex items-center justify-between mb-6">
-                      <h2 className="font-serif text-xl text-[#2C2420]">Delivery Address</h2>
-                      <button type="button" onClick={() => { setShowNewAddress(true); setSelectedAddressId(null); setDelivery({ name: '', phone: '', email: '', address: '', city: '', state: '', pincode: '', lat: null, lng: null }); }} className="text-xs tracking-[0.1em] uppercase text-[#D4A373] hover:text-[#4A3B32] font-semibold flex items-center gap-1 transition-colors" data-testid="add-new-address-btn">
-                        <Plus size={14} /> New Address
-                      </button>
-                    </div>
+                  <div className="bg-white border border-[#E8E0D5]" data-testid="saved-addresses-section">
+                    {/* Accordion header */}
+                    <button
+                      type="button"
+                      onClick={() => toggleSection('delivery')}
+                      className="w-full flex items-center justify-between p-5 sm:p-8 text-left"
+                      aria-expanded={openSection === 'delivery'}
+                      data-testid="delivery-accordion-toggle"
+                    >
+                      <div className="flex items-center gap-3">
+                        {selectedAddressId && <Check size={16} className="text-green-600 flex-shrink-0" />}
+                        <h2 className="font-serif text-lg sm:text-xl text-[#2C2420]">
+                          {openSection !== 'delivery' && selectedAddressId
+                            ? `Delivering to: ${delivery.city}`
+                            : 'Delivery Address'}
+                        </h2>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {openSection === 'delivery'
+                          ? <button type="button" onClick={(e) => { e.stopPropagation(); setShowNewAddress(true); setSelectedAddressId(null); setDelivery({ name: '', phone: '', email: '', address: '', city: '', state: '', pincode: '', lat: null, lng: null }); }}
+                              className="text-xs text-[#D4A373] font-semibold flex items-center gap-1" data-testid="add-new-address-btn">
+                              <Plus size={12} /> New
+                            </button>
+                          : null
+                        }
+                        {openSection === 'delivery' ? <ChevronUp size={18} className="text-[#786A60]" /> : <ChevronDown size={18} className="text-[#786A60]" />}
+                      </div>
+                    </button>
+
+                    {/* Collapsible content */}
+                    <AnimatePresence initial={false}>
+                      {openSection === 'delivery' && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.25 }}
+                          className="overflow-hidden px-5 sm:px-8 pb-6"
+                        >
 
                     {/* Saved Address Cards */}
                     {!loadingAddresses && savedAddresses.length > 0 && (
@@ -266,29 +354,70 @@ const CheckoutPage = () => {
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </motion.div>
+                  )}
+                  </AnimatePresence>
                   </div>
                 )}
 
-                {/* Payment */}
-                <div className="bg-white border border-[#E8E0D5] p-8" data-testid="payment-method-section">
-                  <h2 className="font-serif text-xl text-[#2C2420] mb-6">Payment Method</h2>
+                <div className="bg-white border border-[#E8E0D5]" data-testid="payment-method-section">
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('payment')}
+                    className="w-full flex items-center justify-between p-5 sm:p-8 text-left"
+                    aria-expanded={openSection === 'payment'}
+                    data-testid="payment-accordion-toggle"
+                  >
+                    <div className="flex items-center gap-3">
+                      {openSection !== 'payment' && (
+                        <Check size={16} className="text-green-600 flex-shrink-0" />
+                      )}
+                      <h2 className="font-serif text-lg sm:text-xl text-[#2C2420]">
+                        {openSection !== 'payment'
+                          ? `Payment: ${paymentMethod === 'cod' ? 'Cash on Delivery' : paymentMethod === 'stripe' ? 'Card / UPI' : 'Razorpay'}`
+                          : 'Payment Method'}
+                      </h2>
+                    </div>
+                    {openSection === 'payment'
+                      ? <ChevronUp size={18} className="text-[#786A60]" />
+                      : <ChevronDown size={18} className="text-[#786A60]" />}
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {openSection === 'payment' && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25 }}
+                        className="overflow-hidden px-5 sm:px-8 pb-6"
+                      >
                   <div className="space-y-3">
                     {[
                       { value: 'cod', label: 'Cash on Delivery', icon: Truck, desc: 'Pay when your order arrives' },
                       { value: 'stripe', label: 'Card / UPI (Stripe)', icon: CreditCard, desc: 'Secure online payment' },
                       { value: 'razorpay', label: 'Razorpay', icon: Wallet, desc: 'UPI, Cards, Netbanking' }
                     ].map(({ value, label, icon: Icon, desc }) => (
-                      <button key={value} type="button" onClick={() => setPaymentMethod(value)} className={`w-full p-5 border text-left flex items-center gap-4 transition-all ${paymentMethod === value ? 'border-[#D4A373] bg-[#D4A373]/5' : 'border-[#E8E0D5] hover:bg-[#FAF8F5]'}`} data-testid={`payment-${value}`}>
-                        <div className={`w-10 h-10 flex items-center justify-center ${paymentMethod === value ? 'bg-[#4A3B32]' : 'bg-[#F3EFEA]'}`}>
-                          <Icon size={18} className={paymentMethod === value ? 'text-white' : 'text-[#786A60]'} />
+                      <button key={value} type="button"
+                        onClick={() => { setPaymentMethod(value); toggleSection('review'); }}
+                        className={`w-full p-4 sm:p-5 border text-left flex items-center gap-4 transition-all
+                          ${paymentMethod === value ? 'border-[#D4A373] bg-[#D4A373]/5' : 'border-[#E8E0D5] hover:bg-[#FAF8F5]'}`}
+                        data-testid={`payment-${value}`}>
+                        <div className={`w-9 h-9 flex items-center justify-center flex-shrink-0
+                          ${paymentMethod === value ? 'bg-[#4A3B32]' : 'bg-[#F3EFEA]'}`}>
+                          <Icon size={16} className={paymentMethod === value ? 'text-white' : 'text-[#786A60]'} />
                         </div>
                         <div>
                           <p className="font-semibold text-[#2C2420] text-sm">{label}</p>
                           <p className="text-xs text-[#786A60]">{desc}</p>
                         </div>
+                        {paymentMethod === value && <Check size={14} className="text-[#D4A373] ml-auto" />}
                       </button>
                     ))}
                   </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
 
@@ -313,6 +442,48 @@ const CheckoutPage = () => {
                     <div className="flex justify-between"><span className="text-[#786A60]">Subtotal</span><span className="text-[#2C2420]">₹{subtotal.toLocaleString()}</span></div>
                     <div className="flex justify-between"><span className="text-[#786A60]">Tax (5%)</span><span className="text-[#2C2420]">₹{tax.toLocaleString()}</span></div>
                     <div className="flex justify-between"><span className="text-[#786A60]">Delivery</span><span className={deliveryCharge === 0 ? 'text-[#A3B18A]' : 'text-[#2C2420]'}>{deliveryCharge === 0 ? 'Free' : `₹${deliveryCharge}`}</span></div>
+                    {discountAmount > 0 && (
+                      <div className="flex justify-between text-green-700 font-medium">
+                        <span className="flex items-center gap-1"><Tag size={12} />{promoCode}</span>
+                        <span>-₹{discountAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Promo code input */}
+                  <div className="mb-6">
+                    {appliedOffer ? (
+                      <div className="flex items-center justify-between bg-green-50 border border-green-200 px-3 py-2 text-sm">
+                        <span className="flex items-center gap-1.5 text-green-700">
+                          <Tag size={13} />
+                          <strong>{promoCode}</strong> applied — ₹{discountAmount.toLocaleString()} off
+                        </span>
+                        <button onClick={handleRemovePromo} className="text-green-600 hover:text-red-500" data-testid="remove-promo">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={promoInput}
+                          onChange={e => setPromoInput(e.target.value.toUpperCase())}
+                          placeholder="Promo code"
+                          className="flex-1 border border-[#E8E0D5] px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#4A3B32]"
+                          data-testid="promo-code-input"
+                          onKeyDown={e => e.key === 'Enter' && handleApplyPromo()}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleApplyPromo}
+                          disabled={promoLoading || !promoInput.trim()}
+                          className="bg-[#D4A373] text-white px-4 py-2 text-xs font-semibold hover:bg-[#c49363] disabled:opacity-50"
+                          data-testid="apply-promo-btn"
+                        >
+                          {promoLoading ? '...' : 'Apply'}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex justify-between mb-8">

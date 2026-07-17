@@ -24,7 +24,7 @@ export const CartProvider = ({ children }) => {
     }
   };
 
-  const addToCart = async (productId, variantId = null, quantity = 1) => {
+  const addToCart = async (productId, variantId = null, quantity = 1, selectedAddons = []) => {
     setLoading(true);
     // Optimistic count update
     setCartCount(prev => prev + quantity);
@@ -32,7 +32,8 @@ export const CartProvider = ({ children }) => {
       await apiClient.post('/ecommerce/cart/add', {
         product_id: productId,
         variant_id: variantId,
-        quantity: quantity
+        quantity: quantity,
+        selected_addons: selectedAddons || [],
       });
       await fetchCart();
       toast.success('Item added to cart');

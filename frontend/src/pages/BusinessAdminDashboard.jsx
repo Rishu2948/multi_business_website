@@ -5,7 +5,10 @@ import { useBusiness } from '../context/BusinessContext';
 import Navbar from '../components/common/Navbar';
 import AddProductModal from '../components/AddProductModal';
 import apiClient from '../utils/api';
-import { Package, AlertTriangle, TrendingUp, Plus, Edit, Trash2 } from 'lucide-react';
+import {
+  Package, AlertTriangle, TrendingUp, Plus, Edit, Trash2,
+  Tag, Megaphone, Layers, Store, LayoutGrid
+} from 'lucide-react';
 
 const BusinessAdminDashboard = () => {
   const { user } = useAuth();
@@ -274,6 +277,86 @@ const BusinessAdminDashboard = () => {
       </main>
 
       {/* Add Product Modal */}
+      {/* ── Config Management ─────────────────────────────────────────── */}
+          <div className="mt-8 mb-8">
+            <h2 className="text-xl font-bold text-primary uppercase mb-4 tracking-tight">
+              STORE CONFIGURATION
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <Link
+                to="/admin/categories"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all group"
+                data-testid="nav-categories"
+              >
+                <LayoutGrid size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">
+                  CATEGORY MANAGER
+                </h3>
+                <p className="text-xs text-muted">Add, rename, reorder menu categories. No redeploy needed.</p>
+              </Link>
+
+              <Link
+                to="/admin/products"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-products"
+              >
+                <Package size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">
+                  PRODUCT MANAGER
+                </h3>
+                <p className="text-xs text-muted">Add products, manage addons, veg flags, collection tags.</p>
+              </Link>
+
+              <Link
+                to="/admin/store-config"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-store-config"
+              >
+                <Store size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">
+                  STORE CONFIG
+                </h3>
+                <p className="text-xs text-muted">Business hours, order types, delivery settings, tax rate.</p>
+              </Link>
+
+              <Link
+                to="/admin/offers"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-offers"
+              >
+                <Tag size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">
+                  OFFERS MANAGER
+                </h3>
+                <p className="text-xs text-muted">Create promo codes, discounts, and auto-applied offers.</p>
+              </Link>
+
+              <Link
+                to="/admin/collections"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-collections"
+              >
+                <Layers size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">
+                  COLLECTIONS
+                </h3>
+                <p className="text-xs text-muted">Manage Gifting, Festive, Corporate groupings.</p>
+              </Link>
+
+              <Link
+                to="/admin/announcements"
+                className="bg-white border border-border p-5 hover:-translate-y-0.5 hover:shadow-md transition-all"
+                data-testid="nav-announcements"
+              >
+                <Megaphone size={28} className="text-primary mb-3" strokeWidth={1.5} />
+                <h3 className="text-sm font-bold text-primary uppercase tracking-wide mb-1">
+                  ANNOUNCEMENTS
+                </h3>
+                <p className="text-xs text-muted">Edit the top banner bar message shown to customers.</p>
+              </Link>
+            </div>
+          </div>
+
       <AddProductModal
         isOpen={showAddProduct}
         onClose={() => setShowAddProduct(false)}

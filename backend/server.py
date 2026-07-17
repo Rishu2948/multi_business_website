@@ -421,27 +421,73 @@ async def get_business(business_id: str):
 async def list_products(
     business_id: str,
     category_id: str = None,
+    subcategory_id: str = None,
+    collection: str = None,
+    is_veg: bool = None,
+    is_featured: bool = None,
+    is_bestseller: bool = None,
+    has_active_offer: bool = None,
+    min_price: float = None,
+    max_price: float = None,
+    min_rating: float = None,
+    keyword: str = None,
+    sort_by: str = "sort_order",
     status: str = "active",
     page: int = 1,
     limit: int = 50
 ):
-    """List products (public route)"""
-    query = {"business_id": business_id, "status": status}
+    """List products (public) — all filter params optional and backward-compatible."""
+    query: dict = {"business_id": business_id, "status": status}
+
     if category_id:
         query["category_id"] = category_id
-    
+    if subcategory_id:
+        query["subcategory_id"] = subcategory_id
+    if collection:
+        query["collection_tags"] = {"$in": [collection]}
+    if is_veg is not None:
+        query["is_veg"] = is_veg
+    if is_featured is not None:
+        query["is_featured"] = is_featured
+    if is_bestseller is not None:
+        query["is_bestseller"] = is_bestseller
+    if has_active_offer is not None:
+        query["has_active_offer"] = has_active_offer
+    if min_price is not None or max_price is not None:
+        price_filter: dict = {}
+        if min_price is not None:
+            price_filter["$gte"] = min_price
+        if max_price is not None:
+            price_filter["$lte"] = max_price
+        query["base_price"] = price_filter
+    if min_rating is not None:
+        query["avg_rating"] = {"$gte": min_rating}
+    if keyword:
+        query["$text"] = {"$search": keyword}
+
+    sort_map = {
+        "price_asc":   [("base_price", 1)],
+        "price_desc":  [("base_price", -1)],
+        "rating":      [("avg_rating", -1)],
+        "popular":     [("total_ordered", -1)],
+        "newest":      [("created_at", -1)],
+        "sort_order":  [("sort_order", 1)],
+        "trending":    [("trending_score", -1)],
+    }
+    sort = sort_map.get(sort_by, [("sort_order", 1)])
+
     skip = (page - 1) * limit
-    products = await db.products.find(query, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
+    products = await db.products.find(query, {"_id": 0}).sort(sort).skip(skip).limit(limit).to_list(limit)
     total = await db.products.count_documents(query)
-    
+
     return {
         "products": products,
         "pagination": {
             "page": page,
             "limit": limit,
             "total": total,
-            "total_pages": (total + limit - 1) // limit
-        }
+            "total_pages": (total + limit - 1) // limit,
+        },
     }
 
 @api_router.get("/products/trending/{business_id}")
@@ -649,6 +695,7 @@ async def create_product(
         "product_id": product_id,
         "business_id": business_id,
         "category_id": data.get("category_id"),
+        "subcategory_id": data.get("subcategory_id"),
         "product_name": data.get("product_name"),
         "description": data.get("description", ""),
         "base_price": data.get("base_price", 0),
@@ -656,9 +703,18 @@ async def create_product(
         "images": data.get("images", []),
         "attributes": data.get("attributes", {}),
         "variants": data.get("variants", []),
+        # New config-driven fields
+        "is_veg": data.get("is_veg", None),
+        "is_featured": data.get("is_featured", False),
+        "is_bestseller": data.get("is_bestseller", False),
+        "has_active_offer": False,
+        "collection_tags": data.get("collection_tags", []),
+        "addons": data.get("addons", []),
+        "allergens": data.get("allergens", []),
+        "sort_order": data.get("sort_order", 999),
         "status": "active",
         "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc)
+        "updated_at": datetime.now(timezone.utc),
     }
     
     # Add variant_id to each variant
@@ -1132,6 +1188,19 @@ additional_routes.set_db(db)
 import location_routes
 location_routes.set_db(db)
 
+# ── New config-driven modules ──────────────────────────────────────────────
+import category_routes
+import store_routes
+import offers_routes
+import collections_routes
+import announcements_routes
+
+category_routes.set_db(db)
+store_routes.set_db(db)
+offers_routes.set_db(db)
+collections_routes.set_db(db)
+announcements_routes.set_db(db)
+
 # Include routers
 app.include_router(ecommerce_routes.router)
 app.include_router(payment_routes.router)
@@ -1143,6 +1212,11 @@ app.include_router(additional_routes.subscriptions_router)
 app.include_router(order_management_routes.router)
 app.include_router(sse_routes.router)
 app.include_router(location_routes.router)
+app.include_router(category_routes.router)
+app.include_router(store_routes.router)
+app.include_router(offers_routes.router)
+app.include_router(collections_routes.router)
+app.include_router(announcements_routes.router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1227,18 +1301,9 @@ async def ensure_compound_indexes() -> None:
 async def _trending_refresh_loop() -> None:
     """
     Background asyncio task: refreshes trending scores every 15 minutes.
-
-    Runs inside the same event loop as FastAPI — shares the Motor db
-    connection pool with no extra overhead.
-
-    If two ECS tasks run simultaneously, both write the same computed
-    values (idempotent). No correctness issue; minor redundant work.
-    The fix for multi-container is a Redis distributed lock — tracked
-    as a future improvement.
     """
-    import trending_refresh  # local import avoids circular dependency at module load
+    import trending_refresh
 
-    # Short initial delay so the app is fully ready before first run
     await asyncio.sleep(5)
 
     while True:
@@ -1254,11 +1319,102 @@ async def _trending_refresh_loop() -> None:
         except Exception:
             logger.exception("trending refresh loop error — will retry in 15 min")
 
-        await asyncio.sleep(15 * 60)   # 15 minutes
+        await asyncio.sleep(15 * 60)
+
+
+async def _category_counts_loop() -> None:
+    """Refresh product_count on category docs every 10 minutes."""
+    import trending_refresh
+    await asyncio.sleep(30)   # start after trending refresh
+    while True:
+        try:
+            await trending_refresh.refresh_category_counts(db)
+        except Exception:
+            logger.exception("category counts refresh error")
+        await asyncio.sleep(10 * 60)
+
+
+async def _offers_maintenance_loop() -> None:
+    """Expire stale offers and sync has_active_offer flags hourly."""
+    import trending_refresh
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await trending_refresh.expire_offers(db)
+            await trending_refresh.sync_has_active_offer(db)
+        except Exception:
+            logger.exception("offers maintenance error")
+        await asyncio.sleep(60 * 60)
+
+
+async def ensure_new_indexes() -> None:
+    """Create indexes for new collections added in Session 1."""
+    # categories
+    await db.categories.create_index(
+        [("business_id", 1), ("is_active", 1), ("sort_order", 1)],
+        background=True, name="categories_business_active_order_idx"
+    )
+    await db.categories.create_index(
+        [("business_id", 1), ("category_id", 1)],
+        unique=True, background=True, name="categories_business_id_unique_idx"
+    )
+    # products — new filter fields
+    await db.products.create_index(
+        [("business_id", 1), ("category_id", 1), ("status", 1)],
+        background=True, name="products_business_category_status_idx"
+    )
+    await db.products.create_index(
+        [("business_id", 1), ("collection_tags", 1)],
+        background=True, name="products_business_collection_tags_idx"
+    )
+    await db.products.create_index(
+        [("business_id", 1), ("is_veg", 1), ("status", 1)],
+        background=True, name="products_business_veg_status_idx"
+    )
+    await db.products.create_index(
+        [("business_id", 1), ("is_bestseller", 1)],
+        background=True, name="products_business_bestseller_idx"
+    )
+    await db.products.create_index(
+        [("business_id", 1), ("has_active_offer", 1)],
+        background=True, name="products_business_offer_idx"
+    )
+    await db.products.create_index(
+        [("product_name", "text"), ("description", "text")],
+        background=True, name="products_text_search_idx"
+    )
+    # offers
+    await db.offers.create_index(
+        [("business_id", 1), ("is_active", 1), ("valid_until", 1)],
+        background=True, name="offers_business_active_expiry_idx"
+    )
+    await db.offers.create_index(
+        [("promo_code", 1)],
+        background=True, name="offers_promo_code_idx"
+    )
+    # collections
+    await db.collections.create_index(
+        [("business_id", 1), ("is_active", 1)],
+        background=True, name="collections_business_active_idx"
+    )
+    # store_config
+    await db.store_config.create_index(
+        [("business_id", 1)],
+        unique=True, background=True, name="store_config_business_unique_idx"
+    )
+    # announcements
+    await db.announcements.create_index(
+        [("business_id", 1), ("is_active", 1), ("priority", -1)],
+        background=True, name="announcements_business_active_priority_idx"
+    )
+    logger.info("new session-1 indexes created / verified")
 
 
 @app.on_event("startup")
 async def startup_event():
     await ensure_user_preferences_indexes()
     await ensure_compound_indexes()
+    await ensure_new_indexes()
     asyncio.create_task(_trending_refresh_loop())
+    asyncio.create_task(_category_counts_loop())
+    asyncio.create_task(_offers_maintenance_loop())
