@@ -4,7 +4,7 @@
  * Mobile-responsive: form opens as bottom sheet.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit2, Trash2, Tag } from 'lucide-react';
 import Navbar from '../../components/common/Navbar';
 import { useBusiness } from '../../context/BusinessContext';
@@ -276,7 +276,7 @@ const OffersManager = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingOffer, setEditingOffer] = useState(null);
 
-  const fetch = async () => {
+  const fetch = useCallback(async () => {
     if (!businessId) return;
     try {
       const r = await apiClient.get(`/admin/offers/${businessId}`);
@@ -284,9 +284,9 @@ const OffersManager = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [businessId]);
 
-  useEffect(() => { fetch(); }, [businessId]);
+  useEffect(() => { fetch(); }, [fetch]);
 
   const handleCreate = async data => {
     await apiClient.post('/admin/offers', data);

@@ -5,7 +5,7 @@
  * show_on_homepage controls the homepage tiles.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Navbar from '../../components/common/Navbar';
@@ -145,15 +145,15 @@ const CollectionManager = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingCol, setEditingCol] = useState(null);
 
-  const fetch = async () => {
+  const fetch = useCallback(async () => {
     if (!businessId) return;
     try {
       const r = await apiClient.get(`/admin/collections/${businessId}`);
       setCollections(r.data.collections || []);
     } finally { setLoading(false); }
-  };
+  }, [businessId]);
 
-  useEffect(() => { fetch(); }, [businessId]);
+  useEffect(() => { fetch(); }, [fetch]);
 
   const handleCreate = async data => {
     await apiClient.post('/admin/collections', data);

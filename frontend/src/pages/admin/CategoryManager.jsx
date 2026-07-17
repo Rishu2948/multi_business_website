@@ -5,7 +5,7 @@
  * Mobile: card layout. Desktop: table.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Edit2, Trash2, ArrowUp, ArrowDown, Eye, EyeOff, Star } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -204,7 +204,7 @@ const CategoryManager = () => {
 
   const businessId = selectedBusiness?.business_id;
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     if (!businessId) return;
     try {
       const res = await apiClient.get(`/admin/categories/${businessId}`);
@@ -214,11 +214,11 @@ const CategoryManager = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [businessId]);
 
   useEffect(() => {
     fetchCategories();
-  }, [businessId]);
+  }, [fetchCategories]);
 
   const handleCreate = async data => {
     await apiClient.post('/admin/categories', data);

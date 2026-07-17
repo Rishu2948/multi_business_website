@@ -4,7 +4,7 @@
  * Includes a live preview of how the bar will look.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit2, Trash2, Eye, EyeOff } from 'lucide-react';
 import Navbar from '../../components/common/Navbar';
 import { useBusiness } from '../../context/BusinessContext';
@@ -183,15 +183,15 @@ const AnnouncementManager = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingAnn, setEditingAnn] = useState(null);
 
-  const fetch = async () => {
+  const fetch = useCallback(async () => {
     if (!businessId) return;
     try {
       const r = await apiClient.get(`/admin/announcements/${businessId}`);
       setAnnouncements(r.data.announcements || []);
     } finally { setLoading(false); }
-  };
+  }, [businessId]);
 
-  useEffect(() => { fetch(); }, [businessId]);
+  useEffect(() => { fetch(); }, [fetch]);
 
   const handleCreate = async data => {
     await apiClient.post('/admin/announcements', { ...data, business_id: businessId });
