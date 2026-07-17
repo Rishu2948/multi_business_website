@@ -1379,10 +1379,9 @@ async def ensure_new_indexes() -> None:
         [("business_id", 1), ("has_active_offer", 1)],
         background=True, name="products_business_offer_idx"
     )
-    await db.products.create_index(
-        [("business_id", 1), ("product_name", "text"), ("description", "text")],
-        background=True, name="products_text_search_idx"
-    )
+    # Text search index — created once manually; name in DB is
+    # "business_id_1_product_name_text_description_text". Skipped here
+    # to avoid IndexOptionsConflict on every startup.
     # offers
     await db.offers.create_index(
         [("business_id", 1), ("is_active", 1), ("valid_until", 1)],
