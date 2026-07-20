@@ -27,6 +27,7 @@ const statusLabels = {
 const AdminOrdersDashboard = () => {
   const { user } = useAuth();
   const [orders, setOrders] = useState([]);
+  const [customOrders, setCustomOrders] = useState([]);
   const [stats, setStats] = useState(null);
   const [agents, setAgents] = useState([]);
   const [filter, setFilter] = useState('');
@@ -38,17 +39,23 @@ const AdminOrdersDashboard = () => {
   const [newAgentEmail, setNewAgentEmail] = useState('');
   const [newAgentPhone, setNewAgentPhone] = useState('');
   const [newAgentPincode, setNewAgentPincode] = useState('');
+  const [activeTab, setActiveTab] = useState('regular');
+  const [quotePrice, setQuotePrice] = useState('');
+  const [quoteNotes, setQuoteNotes] = useState('');
+  const [quotingOrder, setQuotingOrder] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [ordersRes, statsRes, agentsRes] = await Promise.all([
+      const [ordersRes, statsRes, agentsRes, customRes] = await Promise.all([
         apiClient.get(`/order-management/orders${filter ? `?status=${filter}` : ''}`),
         apiClient.get('/order-management/orders/stats'),
-        apiClient.get('/order-management/delivery-agents')
+        apiClient.get('/order-management/delivery-agents'),
+        apiClient.get('/custom-orders/admin/all').catch(e => ({ data: { orders: [] } }))
       ]);
       setOrders(ordersRes.data.orders);
       setStats(statsRes.data);
       setAgents(agentsRes.data.agents);
+      setCustomOrders(customRes.data.orders || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); }
   }, [filter]);
@@ -84,6 +91,22 @@ const AdminOrdersDashboard = () => {
       setNewAgentEmail(''); setNewAgentPhone(''); setNewAgentPincode(''); setShowAgentModal(false);
       fetchData();
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed to assign role'); }
+  };
+
+  const updateCustomOrderStatus = async (orderId, status, price = null, notes = null) => {
+    try {
+      await apiClient.put(`/custom-orders/${orderId}/status`, { status, price, admin_notes: notes });
+      toast.success(`Custom order ${status}`);
+      setQuotingOrder(null);
+      setQuotePrice('');
+      setQuoteNotes('');
+      fetchData();
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
+  };
+
+  const submitQuote = async () => {
+    if (!quotePrice || isNaN(quotePrice)) { toast.error('Valid price required'); return; }
+    await updateCustomOrderStatus(quotingOrder, 'quoted', parseFloat(quotePrice), quoteNotes);
   };
 
   const inputClass = "w-full border border-[#E8E0D5] px-4 py-3 focus:ring-1 focus:ring-[#4A3B32] focus:border-[#4A3B32] transition-all outline-none bg-white text-[#2C2420]";
@@ -129,19 +152,27 @@ const AdminOrdersDashboard = () => {
             </div>
           )}
 
-          {/* Filters + Agent Button */}
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
-            <div className="flex flex-wrap gap-2">
-              {['', 'pending', 'confirmed', 'preparing', 'on_the_way', 'delivered', 'cancelled'].map((s) => (
-                <button key={s} onClick={() => setFilter(s)} className={`px-4 py-2 text-xs tracking-[0.1em] uppercase font-semibold border transition-colors ${filter === s ? 'bg-[#4A3B32] text-white border-[#4A3B32]' : 'bg-white text-[#4A3B32] border-[#E8E0D5] hover:bg-[#FAF8F5]'}`} data-testid={`filter-${s || 'all'}`}>
-                  {s ? statusLabels[s] : 'All'}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setShowAgentModal(true)} className="bg-[#4A3B32] text-white px-6 py-3 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors flex items-center gap-2" data-testid="add-delivery-agent-btn">
-              <UserPlus size={16} /> Add Delivery Agent
-            </button>
+          {/* Tabs */}
+          <div className="flex gap-4 mb-8 border-b border-[#E8E0D5]">
+            <button onClick={() => setActiveTab('regular')} className={`pb-4 px-2 text-xs tracking-[0.1em] uppercase font-semibold transition-colors ${activeTab === 'regular' ? 'text-[#4A3B32] border-b-2 border-[#4A3B32]' : 'text-[#786A60] hover:text-[#4A3B32]'}`}>Regular Orders</button>
+            <button onClick={() => setActiveTab('custom')} className={`pb-4 px-2 text-xs tracking-[0.1em] uppercase font-semibold transition-colors ${activeTab === 'custom' ? 'text-[#4A3B32] border-b-2 border-[#4A3B32]' : 'text-[#786A60] hover:text-[#4A3B32]'}`}>Custom Orders ({customOrders.length})</button>
           </div>
+
+          {/* Filters + Agent Button (Regular Orders) */}
+          {activeTab === 'regular' && (
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+              <div className="flex flex-wrap gap-2">
+                {['', 'pending', 'confirmed', 'preparing', 'on_the_way', 'delivered', 'cancelled'].map((s) => (
+                  <button key={s} onClick={() => setFilter(s)} className={`px-4 py-2 text-xs tracking-[0.1em] uppercase font-semibold border transition-colors ${filter === s ? 'bg-[#4A3B32] text-white border-[#4A3B32]' : 'bg-white text-[#4A3B32] border-[#E8E0D5] hover:bg-[#FAF8F5]'}`} data-testid={`filter-${s || 'all'}`}>
+                    {s ? statusLabels[s] : 'All'}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setShowAgentModal(true)} className="bg-[#4A3B32] text-white px-6 py-3 text-xs tracking-[0.15em] uppercase font-semibold hover:bg-[#332822] transition-colors flex items-center gap-2" data-testid="add-delivery-agent-btn">
+                <UserPlus size={16} /> Add Delivery Agent
+              </button>
+            </div>
+          )}
 
           {/* Delivery Agents Bar */}
           {agents.length > 0 && (
@@ -162,13 +193,14 @@ const AdminOrdersDashboard = () => {
           )}
 
           {/* Orders */}
-          <div className="space-y-3" data-testid="orders-list">
-            {orders.length === 0 ? (
-              <div className="bg-white border border-[#E8E0D5] p-16 text-center">
-                <Package size={48} className="mx-auto text-[#786A60] mb-4" strokeWidth={1} />
-                <p className="font-serif text-xl text-[#2C2420]">No orders found</p>
-              </div>
-            ) : orders.map((order) => (
+          {activeTab === 'regular' ? (
+            <div className="space-y-3" data-testid="orders-list">
+              {orders.length === 0 ? (
+                <div className="bg-white border border-[#E8E0D5] p-16 text-center">
+                  <Package size={48} className="mx-auto text-[#786A60] mb-4" strokeWidth={1} />
+                  <p className="font-serif text-xl text-[#2C2420]">No orders found</p>
+                </div>
+              ) : orders.map((order) => (
               <motion.div key={order.order_id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white border border-[#E8E0D5]" data-testid={`admin-order-${order.order_id}`}>
                 {/* Header */}
                 <button onClick={() => setExpandedOrder(expandedOrder === order.order_id ? null : order.order_id)} className="w-full p-5 flex items-center justify-between text-left hover:bg-[#FAF8F5]/50 transition-colors" data-testid={`toggle-order-${order.order_id}`}>
@@ -253,7 +285,106 @@ const AdminOrdersDashboard = () => {
                 </AnimatePresence>
               </motion.div>
             ))}
-          </div>
+            </div>
+          ) : (
+            /* Custom Orders */
+            <div className="space-y-3" data-testid="custom-orders-list">
+              {customOrders.length === 0 ? (
+                <div className="bg-white border border-[#E8E0D5] p-16 text-center">
+                  <Package size={48} className="mx-auto text-[#786A60] mb-4" strokeWidth={1} />
+                  <p className="font-serif text-xl text-[#2C2420]">No custom orders found</p>
+                </div>
+              ) : customOrders.map((order) => (
+                <motion.div key={order.custom_order_id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white border border-[#E8E0D5]" data-testid={`admin-custom-order-${order.custom_order_id}`}>
+                  {/* Header */}
+                  <button onClick={() => setExpandedOrder(expandedOrder === order.custom_order_id ? null : order.custom_order_id)} className="w-full p-5 flex items-center justify-between text-left hover:bg-[#FAF8F5]/50 transition-colors" data-testid={`toggle-custom-order-${order.custom_order_id}`}>
+                    <div className="flex items-center gap-4">
+                      <span className={`text-xs px-3 py-1 font-semibold ${order.status === 'pending_quote' ? 'bg-[#D4A373]/20 text-[#A67C52]' : order.status === 'quoted' ? 'bg-blue-50 text-blue-600' : order.status === 'confirmed' ? 'bg-[#A3B18A]/20 text-[#5A7247]' : 'bg-red-50 text-red-600'}`}>
+                        {order.status === 'pending_quote' ? 'Quote Pending' : order.status === 'quoted' ? 'Quoted' : order.status === 'confirmed' ? 'Confirmed' : 'Rejected'}
+                      </span>
+                      <span className="font-serif text-sm text-[#2C2420]">#{order.custom_order_id}</span>
+                      <span className="text-xs text-[#786A60]">{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="font-serif text-sm text-[#2C2420]">₹{order.price?.toLocaleString()}</span>
+                      {expandedOrder === order.custom_order_id ? <ChevronUp size={16} className="text-[#786A60]" /> : <ChevronDown size={16} className="text-[#786A60]" />}
+                    </div>
+                  </button>
+
+                  {/* Expanded Details */}
+                  <AnimatePresence>
+                    {expandedOrder === order.custom_order_id && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="px-5 pb-5 border-t border-[#E8E0D5]">
+                          {/* Cake Details */}
+                          <div className="py-4">
+                            <p className="text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Cake Details</p>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <span className="text-[#786A60]">Type: <span className="text-[#2C2420]">{order.cake_type}</span></span>
+                              <span className="text-[#786A60]">Flavor: <span className="text-[#2C2420]">{order.flavor}</span></span>
+                              <span className="text-[#786A60]">Weight: <span className="text-[#2C2420]">{order.weight}</span></span>
+                              <span className="text-[#786A60]">Shape: <span className="text-[#2C2420]">{order.shape}</span></span>
+                            </div>
+                            {order.message_on_cake && <p className="text-sm text-[#2C2420] mt-2">Message: {order.message_on_cake}</p>}
+                            {order.special_instructions && <p className="text-sm text-[#786A60] mt-1">Notes: {order.special_instructions}</p>}
+                          </div>
+
+                          {/* Delivery Info */}
+                          {order.delivery_info && (
+                            <div className="py-4 border-t border-[#E8E0D5]">
+                              <p className="text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-2">Delivery</p>
+                              <p className="text-sm text-[#2C2420]">{order.delivery_info.name} &bull; {order.delivery_info.phone}</p>
+                              <p className="text-sm text-[#786A60]">{order.delivery_info.address}, {order.delivery_info.city}</p>
+                              <p className="text-sm text-[#786A60]">{order.delivery_date} at {order.delivery_time}</p>
+                            </div>
+                          )}
+
+                          {/* Actions */}
+                          <div className="flex flex-wrap gap-2 pt-4 border-t border-[#E8E0D5]">
+                            {order.status === 'pending_quote' && (
+                              <button onClick={() => setQuotingOrder(order.custom_order_id)} className="px-5 py-2.5 text-xs tracking-[0.1em] uppercase font-semibold bg-[#4A3B32] text-white hover:bg-[#332822] transition-colors">Provide Quote</button>
+                            )}
+                            {order.status === 'quoted' && (
+                              <>
+                                <button onClick={() => updateCustomOrderStatus(order.custom_order_id, 'confirmed')} className="px-5 py-2.5 text-xs tracking-[0.1em] uppercase font-semibold bg-[#A3B18A] text-white border border-[#A3B18A] hover:bg-[#5A7247] transition-colors">Confirm Order</button>
+                                <button onClick={() => updateCustomOrderStatus(order.custom_order_id, 'rejected')} className="px-5 py-2.5 text-xs tracking-[0.1em] uppercase font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">Reject</button>
+                              </>
+                            )}
+                            {['pending_quote', 'quoted'].includes(order.status) && (
+                              <button onClick={() => updateCustomOrderStatus(order.custom_order_id, 'rejected')} className="px-5 py-2.5 text-xs tracking-[0.1em] uppercase font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">Reject</button>
+                            )}
+                          </div>
+
+                          {/* Quote Form */}
+                          {quotingOrder === order.custom_order_id && (
+                            <div className="mt-4 p-4 bg-[#FAF8F5] border border-[#E8E0D5]" data-testid={`quote-panel-${order.custom_order_id}`}>
+                              <p className="text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-3">Provide Quote</p>
+                              <div className="space-y-3">
+                                <div><label className="block text-xs text-[#786A60] mb-1">Price (₹)</label><input type="number" value={quotePrice} onChange={(e) => setQuotePrice(e.target.value)} placeholder="Enter price" className={inputClass} /></div>
+                                <div><label className="block text-xs text-[#786A60] mb-1">Notes (optional)</label><textarea value={quoteNotes} onChange={(e) => setQuoteNotes(e.target.value)} rows="2" placeholder="Any additional notes..." className={`${inputClass} resize-none`} /></div>
+                              </div>
+                              <div className="flex gap-2 mt-3">
+                                <button onClick={submitQuote} className="bg-[#4A3B32] text-white px-4 py-2 text-xs tracking-[0.1em] uppercase font-semibold hover:bg-[#332822] transition-colors">Submit Quote</button>
+                                <button onClick={() => { setQuotingOrder(null); setQuotePrice(''); setQuoteNotes(''); }} className="text-xs text-[#D4A373] hover:text-[#4A3B32] font-semibold">Cancel</button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Admin Notes */}
+                          {order.admin_notes && (
+                            <div className="mt-4 p-3 bg-[#FAF8F5] border border-[#E8E0D5]">
+                              <p className="text-xs tracking-[0.1em] uppercase text-[#786A60] font-semibold mb-1">Admin Notes</p>
+                              <p className="text-sm text-[#2C2420]">{order.admin_notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
 

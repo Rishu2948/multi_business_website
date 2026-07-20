@@ -34,13 +34,16 @@ const CustomCakeOrderPage = () => {
     setSubmitting(true);
     try {
       await apiClient.post('/custom-orders/create', {
-        specifications: {
-          flavor: formData.flavor, size: formData.size, tiers: parseInt(formData.tiers),
-          message: formData.message, dietary: formData.dietary, shape: formData.shape, occasion: formData.occasion
-        },
-        delivery_date: formData.date, delivery_time: formData.time,
-        delivery_info: { name: formData.name, phone: formData.phone, email: formData.email, address: formData.address, city: formData.city, state: formData.state, pincode: formData.pincode },
-        notes: formData.notes
+        product_id: 'prod_d5a7604f52d9',
+        cake_type: formData.occasion || 'custom',
+        weight: formData.size,
+        flavor: formData.flavor,
+        shape: formData.shape,
+        message_on_cake: formData.message,
+        special_instructions: formData.notes,
+        delivery_date: formData.date,
+        delivery_time: formData.time,
+        delivery_info: { name: formData.name, phone: formData.phone, email: formData.email, address: formData.address, city: formData.city, state: formData.state, pincode: formData.pincode }
       });
       toast.success('Custom cake order placed!');
       navigate('/my-orders');

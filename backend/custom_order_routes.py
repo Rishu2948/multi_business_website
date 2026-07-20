@@ -83,6 +83,12 @@ async def get_my_custom_orders(request: Request):
     
     return {"orders": orders}
 
+@router.get("/admin/all")
+async def get_all_custom_orders():
+    """Get all custom orders for admin"""
+    orders = await db.custom_orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"orders": orders}
+
 @router.get("/{custom_order_id}")
 async def get_custom_order(custom_order_id: str):
     """Get custom order details"""
@@ -91,3 +97,31 @@ async def get_custom_order(custom_order_id: str):
         raise HTTPException(status_code=404, detail="Custom order not found")
     
     return order
+
+@router.put("/{custom_order_id}/status")
+async def update_custom_order_status(custom_order_id: str, request: Request):
+    """Update custom order status and price"""
+    data = await request.json()
+    status = data.get("status")
+    price = data.get("price")
+    admin_notes = data.get("admin_notes")
+    
+    valid_statuses = ["pending_quote", "quoted", "confirmed", "rejected"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    
+    update_data = {"status": status, "updated_at": datetime.now(timezone.utc)}
+    if price is not None:
+        update_data["price"] = price
+    if admin_notes is not None:
+        update_data["admin_notes"] = admin_notes
+    
+    result = await db.custom_orders.update_one(
+        {"custom_order_id": custom_order_id},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Custom order not found")
+    
+    return {"message": "Custom order updated"}
