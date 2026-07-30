@@ -337,6 +337,27 @@ async def google_login(request: Request, response: Response):
             upsert=True
         )
 
+        # Get Prime memberships for user
+        from prime.access import get_enabled_features
+        prime_memberships = []
+        try:
+            memberships_cursor = db.prime_memberships.find(
+                {"user_id": user["user_id"], "status": "active", "expires_at": {"$gt": datetime.now(timezone.utc)}},
+                {"_id": 0}
+            )
+            memberships = await memberships_cursor.to_list(length=None)
+
+            for membership in memberships:
+                enabled_features = await get_enabled_features(db, membership["business_id"])
+                prime_memberships.append({
+                    "business_id": membership["business_id"],
+                    "status": membership["status"],
+                    "expires_at": membership["expires_at"],
+                    "enabled_features": enabled_features,
+                })
+        except Exception as e:
+            logger.warning(f"Error fetching prime memberships for {user['user_id']}: {e}")
+
         return {
             "user": {
                 "user_id": user["user_id"],
@@ -345,7 +366,8 @@ async def google_login(request: Request, response: Response):
                 "picture": user["picture"],
                 "role": user["role"],
                 "business_access": user.get("business_access", []),
-                "is_prime": user.get("is_prime", False)
+                "is_prime": user.get("is_prime", False),
+                "prime_memberships": prime_memberships
             },
             "recommendations": recommended_product_ids,
             "preference_summary": preference_vector,
@@ -361,6 +383,27 @@ async def google_login(request: Request, response: Response):
 @api_router.get("/auth/me")
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user details"""
+    # Get Prime memberships for user
+    from prime.access import get_enabled_features
+    prime_memberships = []
+    try:
+        memberships_cursor = db.prime_memberships.find(
+            {"user_id": current_user["user_id"], "status": "active", "expires_at": {"$gt": datetime.now(timezone.utc)}},
+            {"_id": 0}
+        )
+        memberships = await memberships_cursor.to_list(length=None)
+
+        for membership in memberships:
+            enabled_features = await get_enabled_features(db, membership["business_id"])
+            prime_memberships.append({
+                "business_id": membership["business_id"],
+                "status": membership["status"],
+                "expires_at": membership["expires_at"],
+                "enabled_features": enabled_features,
+            })
+    except Exception as e:
+        logger.warning(f"Error fetching prime memberships for {current_user['user_id']}: {e}")
+
     return {
         "user_id": current_user["user_id"],
         "email": current_user["email"],
@@ -369,7 +412,8 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         "role": current_user["role"],
         "business_access": current_user.get("business_access", []),
         "status": current_user["status"],
-        "is_prime": current_user.get("is_prime", False)
+        "is_prime": current_user.get("is_prime", False),
+        "prime_memberships": prime_memberships
     }
 
 @api_router.post("/auth/logout")
@@ -1194,12 +1238,16 @@ import store_routes
 import offers_routes
 import collections_routes
 import announcements_routes
+import business_config_routes
+import prime_routes
 
 category_routes.set_db(db)
 store_routes.set_db(db)
 offers_routes.set_db(db)
 collections_routes.set_db(db)
 announcements_routes.set_db(db)
+business_config_routes.set_db(db)
+prime_routes.set_db(db)
 
 # Include routers
 app.include_router(ecommerce_routes.router)
@@ -1217,6 +1265,8 @@ app.include_router(store_routes.router)
 app.include_router(offers_routes.router)
 app.include_router(collections_routes.router)
 app.include_router(announcements_routes.router)
+app.include_router(business_config_routes.router)
+app.include_router(prime_routes.router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1417,3 +1467,22 @@ async def startup_event():
     asyncio.create_task(_trending_refresh_loop())
     asyncio.create_task(_category_counts_loop())
     asyncio.create_task(_offers_maintenance_loop())
+
+    # Start Prime scheduler
+    try:
+        from prime.scheduler import start_scheduler
+        await start_scheduler(db)
+        logger.info("Prime scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start Prime scheduler: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # Stop Prime scheduler
+    try:
+        from prime.scheduler import stop_scheduler
+        await stop_scheduler()
+        logger.info("Prime scheduler stopped")
+    except Exception as e:
+        logger.error(f"Failed to stop Prime scheduler: {e}")

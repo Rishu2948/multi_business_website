@@ -25,8 +25,38 @@ const OrderTrackingPage = () => {
 
   const fetchTracking = useCallback(async () => {
     try {
-      const res = await apiClient.get(`/order-management/track/${orderId}`);
-      setTrackingData(res.data);
+      // Try custom order endpoint first if ID starts with "custom_"
+      if (orderId.startsWith('custom_')) {
+        const res = await apiClient.get(`/custom-orders/${orderId}`);
+        const customOrder = res.data;
+        
+        // Transform custom order to match tracking data structure
+        setTrackingData({
+          order: {
+            ...customOrder,
+            order_id: customOrder.custom_order_id,
+            order_status: customOrder.status,
+            items: [{ product_name: `Custom Cake (${customOrder.cake_type})`, quantity: 1, subtotal: customOrder.price }],
+            subtotal: customOrder.price,
+            tax: 0,
+            delivery_charge: 0,
+            total: customOrder.price,
+            payment_method: 'cod'
+          },
+          timeline: [
+            { status: 'pending_quote', label: 'Quote Pending', completed: customOrder.status !== 'pending_quote', timestamp: customOrder.created_at },
+            { status: 'quoted', label: 'Quote Provided', completed: ['quoted', 'confirmed', 'rejected'].includes(customOrder.status), timestamp: customOrder.updated_at },
+            { status: 'confirmed', label: 'Order Confirmed', completed: ['confirmed'].includes(customOrder.status), timestamp: customOrder.updated_at },
+            { status: 'rejected', label: 'Order Rejected', completed: ['rejected'].includes(customOrder.status), timestamp: customOrder.updated_at }
+          ],
+          current_status: customOrder.status,
+          delivery_agent: null
+        });
+      } else {
+        // Regular order tracking
+        const res = await apiClient.get(`/order-management/track/${orderId}`);
+        setTrackingData(res.data);
+      }
     } catch (error) { console.error(error); }
     finally { setLoading(false); }
   }, [orderId]);

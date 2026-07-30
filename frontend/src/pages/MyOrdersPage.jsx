@@ -29,8 +29,23 @@ const MyOrdersPage = () => {
     if (!isAuthenticated) { navigate('/login'); return; }
     const fetchOrders = async () => {
       try {
-        const res = await apiClient.get('/orders/my-orders');
-        setOrders(res.data.orders);
+        const [regularRes, customRes] = await Promise.all([
+          apiClient.get('/orders/my-orders').catch(e => ({ data: { orders: [] } })),
+          apiClient.get('/custom-orders/my-orders').catch(e => ({ data: { orders: [] } }))
+        ]);
+        
+        const regularOrders = regularRes.data.orders || [];
+        const customOrders = (customRes.data.orders || []).map(o => ({
+          ...o,
+          order_id: o.custom_order_id,
+          order_status: o.status,
+          items: [{ product_name: `Custom Cake (${o.cake_type})`, quantity: 1, subtotal: o.price }],
+          total: o.price,
+          payment_method: 'cod',
+          is_custom_order: true
+        }));
+        
+        setOrders([...regularOrders, ...customOrders].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
       } catch (error) { console.error('Error:', error); }
       finally { setLoading(false); }
     };

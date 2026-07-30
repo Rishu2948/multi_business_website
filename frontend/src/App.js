@@ -35,6 +35,12 @@ import AnnouncementManager from './pages/admin/AnnouncementManager';
 import CollectionManager from './pages/admin/CollectionManager';
 import CollectionsPage from './pages/CollectionsPage';
 import ProductManager from './pages/admin/ProductManager';
+import BusinessConfigManager from './pages/admin/BusinessConfigManager';
+import BusinessConfigSelector from './pages/admin/BusinessConfigSelector';
+import PrimeUpgradePage from './pages/PrimeUpgradePage';
+import PrimeMembershipPage from './pages/PrimeMembershipPage';
+import PrimeMembershipManager from './pages/admin/PrimeMembershipManager';
+import PrimeAnalytics from './pages/admin/PrimeAnalytics';
 
 function AppRouter() {
   const location = useLocation();
@@ -67,6 +73,17 @@ function AppRouter() {
       <Route path="/subscriptions" element={<SubscriptionsPage />} />
       <Route path="/business/:businessId/custom-order" element={<CustomCakeOrderPage />} />
       
+      {/* Prime Membership */}
+      <Route path="/prime" element={<PrimeUpgradePage />} />
+      <Route
+        path="/prime/memberships"
+        element={
+          <ProtectedRoute>
+            <PrimeMembershipPage />
+          </ProtectedRoute>
+        }
+      />
+      
       {/* Order Tracking */}
       <Route path="/track/:orderId" element={<OrderTrackingPage />} />
 
@@ -89,6 +106,46 @@ function AppRouter() {
         element={
           <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
             <StoreConfigManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Business Config Selector (super admin only) */}
+      <Route
+        path="/admin/business-config"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin']}>
+            <BusinessConfigSelector />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Business Config Manager */}
+      <Route
+        path="/admin/business-config/:businessId"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <BusinessConfigManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Prime Membership Manager */}
+      <Route
+        path="/admin/prime-memberships/:businessId"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <PrimeMembershipManager />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin — Prime Analytics */}
+      <Route
+        path="/admin/prime-analytics/:businessId"
+        element={
+          <ProtectedRoute allowedRoles={['super_admin', 'business_admin']}>
+            <PrimeAnalytics />
           </ProtectedRoute>
         }
       />

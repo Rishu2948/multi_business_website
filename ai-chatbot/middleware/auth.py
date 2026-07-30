@@ -9,14 +9,19 @@ Provides:
 
 Access matrix:
   super_admin, business_admin, staff  →  always permitted
-  customer with is_prime: True        →  permitted
-  customer with is_prime: False/absent →  HTTP 403
+  customer with active Prime membership for business →  permitted
+  customer without Prime membership →  HTTP 403
   missing/invalid/expired token       →  HTTP 401
+
+Business-scoped access:
+  - Checks business_config.prime.features.ai_chatbot.enabled first
+  - Then checks prime_memberships for active record
+  - Falls back to users.is_prime for migration (whisked_words only)
 
 No caching of access decisions — every request reads live from MongoDB so that
 subscription changes (e.g. prime expiry) are reflected immediately.
 
-Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.9, 10.10
+Requirements: 3.4, 3.5, 12.3, 15.1
 """
 
 from __future__ import annotations
@@ -86,16 +91,23 @@ async def check_chatbot_access(
     1. ``session_token`` cookie
     2. ``Authorization: Bearer <token>`` header
 
+    Business-scoped access check:
+    1. Extract business_id from request body
+    2. Check business_config.prime.features.ai_chatbot.enabled
+    3. Check prime_memberships for active record
+    4. Fall back to users.is_prime for migration (whisked_words only)
+
     Raises:
         HTTPException(401) — token missing, session not found, session expired,
                              or user not found in ``users`` collection.
         HTTPException(403) — authenticated as a non-prime customer.
+        HTTPException(404) — business_config not found for business_id.
 
     Returns:
         A dict with at least ``role`` and ``is_prime`` fields from the
         ``users`` collection (``_id`` excluded by projection).
 
-    No caching: ``is_prime`` is read from MongoDB on every request so that
+    No caching: membership status is read from MongoDB on every request so that
     subscription changes take effect immediately.
     """
     # ------------------------------------------------------------------
@@ -149,7 +161,7 @@ async def check_chatbot_access(
         raise HTTPException(status_code=401, detail="Authentication required")
 
     # ------------------------------------------------------------------
-    # Step 4: RBAC check
+    # Step 4: RBAC check (admin bypass)
     # ------------------------------------------------------------------
     role: str = user.get("role", "")
 
@@ -157,11 +169,103 @@ async def check_chatbot_access(
     if role in _ALLOWED_ROLES:
         return user
 
-    # prime customers — permitted
-    if role == "customer" and user.get("is_prime") is True:
-        return user
+    # ------------------------------------------------------------------
+    # Step 5: Business-scoped Prime access check for customers
+    # ------------------------------------------------------------------
+    if role == "customer":
+        # Extract business_id from request body
+        try:
+            request_body = await request.json()
+            business_id = request_body.get("business_id")
+        except:
+            # If request body is not JSON or missing, try query params
+            business_id = request.query_params.get("business_id")
 
-    # non-prime customers and any unrecognised role — denied
+        if not business_id:
+            raise HTTPException(
+                status_code=400,
+                detail="business_id required in request body or query params"
+            )
+
+        # Check business_config.prime.features.ai_chatbot.enabled
+        try:
+            business_config = await db.business_config.find_one(
+                {"business_id": business_id},
+                {"_id": 0, "prime.enabled": 1, "prime.features": 1}
+            )
+
+            if not business_config:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Prime not configured for business: {business_id}"
+                )
+
+            prime_config = business_config.get("prime", {})
+            if not prime_config.get("enabled", False):
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "Prime subscription required",
+                        "feature": "ai_chatbot",
+                        "upgrade_url": f"/prime?business_id={business_id}"
+                    }
+                )
+
+            features = prime_config.get("features", {})
+            ai_chatbot_config = features.get("ai_chatbot", {})
+            if not ai_chatbot_config.get("enabled", False):
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "Prime subscription required",
+                        "feature": "ai_chatbot",
+                        "upgrade_url": f"/prime?business_id={business_id}"
+                    }
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            # Log error but deny access on config errors
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Prime subscription required",
+                    "feature": "ai_chatbot",
+                    "upgrade_url": f"/prime?business_id={business_id}"
+                }
+            )
+
+        # Check prime_memberships for active record
+        try:
+            membership = await db.prime_memberships.find_one({
+                "user_id": user_id,
+                "business_id": business_id,
+                "status": "active",
+                "expires_at": {"$gt": datetime.now(timezone.utc)}
+            })
+
+            if membership:
+                return user
+        except Exception:
+            pass
+
+        # Migration fallback: check users.is_prime for whisked_words
+        if business_id == "whisked_words" and user.get("is_prime") is True:
+            return user
+
+        # No active membership
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Prime subscription required",
+                "feature": "ai_chatbot",
+                "upgrade_url": f"/prime?business_id={business_id}"
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Step 6: Any unrecognised role — denied
+    # ------------------------------------------------------------------
     raise HTTPException(
         status_code=403,
         detail={"error": "Prime subscription required", "upgrade_url": "/prime"},
