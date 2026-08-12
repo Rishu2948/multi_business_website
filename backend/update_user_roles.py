@@ -36,6 +36,11 @@ async def update_user_roles():
             }
         )
         print(f"✅ Updated rishabhjain2948@gmail.com to business_admin for Whisked Words")
+        
+        # Revoke sessions for security
+        from backend.auth.sessions import revoke_all_sessions
+        revoked_count = await revoke_all_sessions(db, user1["user_id"])
+        print(f"  🔒 Revoked {revoked_count} active sessions for security")
     else:
         print("ℹ️  User rishabhjain2948@gmail.com not found. They need to login first via Google OAuth.")
     
@@ -54,6 +59,11 @@ async def update_user_roles():
             }
         )
         print(f"✅ Updated rishu.jain2948@gmail.com to customer")
+        
+        # Revoke sessions for security
+        from backend.auth.sessions import revoke_all_sessions
+        revoked_count = await revoke_all_sessions(db, user2["user_id"])
+        print(f"  🔒 Revoked {revoked_count} active sessions for security")
     else:
         print("ℹ️  User rishu.jain2948@gmail.com not found. They need to login first via Google OAuth.")
     

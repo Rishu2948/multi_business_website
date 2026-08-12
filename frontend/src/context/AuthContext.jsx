@@ -10,6 +10,8 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [accessToken, setAccessToken] = useState(null); // Store in memory only
+  const [mfaRequired, setMfaRequired] = useState(false);
 
   const checkAuth = useCallback(async () => {
     // CRITICAL: Skip /auth/me check if returning from OAuth with session_id
@@ -28,6 +30,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       setUser(null);
       setIsAuthenticated(false);
+      setAccessToken(null);
     } finally {
       setLoading(false);
     }
@@ -37,9 +40,16 @@ export const AuthProvider = ({ children }) => {
     checkAuth();
   }, [checkAuth]);
 
-  const login = (userData) => {
+  const login = (userData, token) => {
     setUser(userData);
     setIsAuthenticated(true);
+    setAccessToken(token); // Store access token in memory
+    window.__ACCESS_TOKEN__ = token; // Store globally for API client
+    setMfaRequired(false);
+  };
+
+  const loginWithMfaRequired = () => {
+    setMfaRequired(true);
   };
 
   const logout = async () => {
@@ -50,7 +60,24 @@ export const AuthProvider = ({ children }) => {
     }
     setUser(null);
     setIsAuthenticated(false);
+    setAccessToken(null); // Clear access token from memory
+    window.__ACCESS_TOKEN__ = null; // Clear global storage
+    setMfaRequired(false);
   };
+
+  const refreshAccessToken = useCallback(async () => {
+    try {
+      const response = await axios.post(`${API}/auth/refresh`, {}, { withCredentials: true });
+      const newAccessToken = response.data.access_token;
+      setAccessToken(newAccessToken);
+      return newAccessToken;
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      // If refresh fails, force logout
+      logout();
+      throw error;
+    }
+  }, [logout]);
 
   return (
     <AuthContext.Provider
@@ -58,9 +85,13 @@ export const AuthProvider = ({ children }) => {
         user,
         loading,
         isAuthenticated,
+        accessToken,
+        mfaRequired,
         login,
+        loginWithMfaRequired,
         logout,
-        refreshAuth: checkAuth
+        refreshAuth: checkAuth,
+        refreshAccessToken
       }}
     >
       {children}

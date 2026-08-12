@@ -9,12 +9,11 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
   },
-  define: {
-    // VITE_API_URL is read from the environment at build time.
-    // Set it in a .env file: VITE_API_URL=https://<api-gateway-url>
-    // Falls back to empty string so the app boots without crashing in dev mode.
-    'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL ?? ''),
-  },
+  // Vite automatically exposes VITE_* variables from .env files via import.meta.env.
+  // Do NOT use `define` to override import.meta.env.VITE_API_URL — that bakes the
+  // value at build time and breaks `npm run dev` where you want it read from .env.local.
+  // Just set VITE_API_URL in chat-ui/.env.local (for local dev) or pass it at build time
+  // for production: VITE_API_URL=https://... npm run build
   test: {
     // Vitest configuration — use jsdom for browser-like environment
     environment: 'jsdom',

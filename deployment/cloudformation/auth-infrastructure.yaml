@@ -1,0 +1,257 @@
+# CloudFormation Template for Auth Infrastructure
+
+This template creates AWS resources specific to authentication and security infrastructure.
+
+Resources:
+  - Secrets Manager for encryption keys
+  - Parameter Store for configuration
+  - Redis cluster for rate limiting (optional)
+  - CloudWatch alarms for auth metrics
+  - SSM Parameters for environment configuration
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Auth Infrastructure for Multi-Business Bakery Platform'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: development
+    AllowedValues:
+      - development
+      - staging
+      - production
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: multi-business-bakery
+    Description: Project name for resource naming
+
+  RedisEnabled:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Redis for rate limiting
+
+Conditions:
+  UseRedis: !Equals [!Ref RedisEnabled, true]
+
+Resources:
+  # Secrets Manager for MFA Encryption Key
+  MFAEncryptionKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}/mfa-encryption-key'
+      Description: 'MFA encryption key for TOTP secrets'
+      SecretString: !Sub '{{"mfa_encryption_key":"${GenerateMFAKey}"}}'
+      KmsKeyId: alias/aws/secretsmanager
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Generate random MFA encryption key
+  GenerateMFAKey:
+    Type: Custom::GenerateRandomString
+    Properties:
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:GenerateRandomString'
+
+  # JWT Secret
+  JWTSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}/jwt-secret'
+      Description: 'JWT secret for token signing'
+      SecretString: !Sub '{{"jwt_secret":"${GenerateJWTKey}"}}'
+      KmsKeyId: alias/aws/secretsmanager
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  GenerateJWTKey:
+    Type: Custom::GenerateRandomString
+    Properties:
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:GenerateRandomString'
+
+  # Razorpay Webhook Secret
+  RazorpayWebhookSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}/razorpay-webhook-secret'
+      Description: 'Razorpay webhook secret for signature verification'
+      SecretString: !Sub '{{"razorpay_webhook_secret":"${GenerateWebhookKey}"}}'
+      KmsKeyId: alias/aws/secretsmanager
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  GenerateWebhookKey:
+    Type: Custom::GenerateRandomString
+    Properties:
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:GenerateRandomString'
+
+  # Parameter Store for Auth Configuration
+  AuthConfiguration:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/${Environment}/auth/config'
+      Type: String
+      Value: !Sub |
+        {
+          "mfa_enforce_for_admins": "false",
+          "auth_accept_legacy_session": "true",
+          "auth_rate_limit_per_minute": "10",
+          "webhook_skip_verify": "false",
+          "max_sessions_per_user": "5",
+          "access_token_ttl_seconds": "900",
+          "refresh_token_ttl_seconds": "604800"
+        }
+      Description: 'Auth configuration parameters'
+
+  # Parameter Store for MFA Configuration
+  MFAConfiguration:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/${Environment}/mfa/config'
+      Type: String
+      Value: !Sub |
+        {
+          "mfa_trust_device_ttl": "2592000",
+          "mfa_code_validity_window": "1",
+          "mfa_max_attempts": "5",
+          "mfa_lockout_duration": "300"
+        }
+      Description: 'MFA configuration parameters'
+
+  # Redis Cluster for Rate Limiting (Optional)
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Condition: UseRedis
+    Properties:
+      Description: !Sub 'Subnet group for ${ProjectName} Redis'
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: UseRedis
+    Properties:
+      GroupDescription: !Sub 'Security group for ${ProjectName} Redis'
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref BackendSecurityGroup
+
+  RedisCluster:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Condition: UseRedis
+    Properties:
+      ReplicationGroupDescription: !Sub 'Redis cluster for ${ProjectName} rate limiting'
+      ReplicationGroupId: !Sub '${ProjectName}-${Environment}-redis'
+      Engine: redis
+      EngineVersion: 7.0
+      CacheNodeType: cache.t3.micro
+      NumCacheClusters: 2
+      AutomaticFailoverEnabled: true
+      SecurityGroupIds:
+        - !Ref RedisSecurityGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # CloudWatch Alarms for Auth Metrics
+  MFAVerificationFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-mfa-verification-failure'
+      AlarmDescription: 'Alert when MFA verification failure rate exceeds 5%'
+      MetricName: MFAVerificationFailureRate
+      Namespace: !Sub '${ProjectName}/Auth'
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+
+  AuthenticationFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-auth-failure'
+      AlarmDescription: 'Alert when authentication failure rate exceeds 10%'
+      MetricName: AuthenticationFailureRate
+      Namespace: !Sub '${ProjectName}/Auth'
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+
+  RateLimitExceededAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-rate-limit-exceeded'
+      AlarmDescription: 'Alert when rate limit is frequently exceeded'
+      MetricName: RateLimitExceededCount
+      Namespace: !Sub '${ProjectName}/Auth'
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Environment
+          Value: !Ref Environment
+
+Outputs:
+  MFAEncryptionKeySecretArn:
+    Description: 'ARN of MFA encryption key secret'
+    Value: !Ref MFAEncryptionKeySecret
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}:MFAEncryptionKeyArn'
+
+  JWTSecretArn:
+    Description: 'ARN of JWT secret'
+    Value: !Ref JWTSecret
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}:JWTSecretArn'
+
+  RazorpayWebhookSecretArn:
+    Description: 'ARN of Razorpay webhook secret'
+    Value: !Ref RazorpayWebhookSecret
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}:RazorpayWebhookSecretArn'
+
+  RedisEndpoint:
+    Description: 'Redis cluster endpoint (if enabled)'
+    Condition: UseRedis
+    Value: !GetAtt RedisCluster.PrimaryEndPoint.Address
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}:RedisEndpoint'
+
+  AuthConfigurationParameter:
+    Description: 'SSM parameter for auth configuration'
+    Value: !Ref AuthConfiguration
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}:AuthConfiguration'

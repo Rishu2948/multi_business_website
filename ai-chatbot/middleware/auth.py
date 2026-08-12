@@ -21,17 +21,36 @@ Business-scoped access:
 No caching of access decisions — every request reads live from MongoDB so that
 subscription changes (e.g. prime expiry) are reflected immediately.
 
+Aligned with Auth_Module semantics:
+  - First tries JWT access token validation
+  - Falls back to legacy session tokens if AUTH_ACCEPT_LEGACY_SESSION=true
+  - Uses centralized token extraction logic
+
 Requirements: 3.4, 3.5, 12.3, 15.1
 """
 
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+import sys
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import Depends, HTTPException, Request
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+
+# Add backend to path for Auth_Module import
+backend_path = Path(__file__).parent.parent.parent / "backend"
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
+
+try:
+    from backend.auth.dependencies import extract_token
+    from backend.auth.tokens import TokenManager
+    AUTH_MODULE_AVAILABLE = True
+except ImportError:
+    AUTH_MODULE_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -111,54 +130,102 @@ async def check_chatbot_access(
     subscription changes take effect immediately.
     """
     # ------------------------------------------------------------------
-    # Step 1: Extract token from cookie or Authorization header
+    # Step 1: Extract token using Auth_Module (if available) or legacy method
     # ------------------------------------------------------------------
-    token: str | None = request.cookies.get("session_token")
-
-    if not token:
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header.split(" ", 1)[1].strip() or None
+    if AUTH_MODULE_AVAILABLE:
+        # Use centralized token extraction from Auth_Module
+        token = await extract_token(request)
+    else:
+        # Legacy fallback
+        token: str | None = request.cookies.get("session_token") or request.cookies.get("refresh_token")
+        if not token:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header.split(" ", 1)[1].strip() or None
 
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
     # ------------------------------------------------------------------
-    # Step 2: Validate session in user_sessions collection
+    # Step 2: Validate token using Auth_Module (if available) or legacy method
     # ------------------------------------------------------------------
-    session = await db.user_sessions.find_one(
-        {"session_token": token},
-        {"_id": 0, "user_id": 1, "expires_at": 1},
-    )
+    user_id = None
+    
+    if AUTH_MODULE_AVAILABLE:
+        # Try JWT access token validation first
+        try:
+            token_manager = TokenManager(db)
+            payload = token_manager.verify_access_token(token)
+            user_id = payload["sub"]
+            
+            # Load user from DB
+            user = await db.users.find_one(
+                {"user_id": user_id},
+                {"_id": 0, "role": 1, "is_prime": 1, "business_access": 1}
+            )
+            
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found")
+            
+            # Skip to RBAC check (Step 4)
+            role = user.get("role", "")
+            if role in _ALLOWED_ROLES:
+                return user
+            
+            # Continue to business-scoped check (Step 5)
+            
+        except HTTPException:
+            # If JWT fails, try legacy session if enabled
+            if os.environ.get("AUTH_ACCEPT_LEGACY_SESSION", "false").lower() == "true":
+                # Fall through to legacy validation below
+                pass
+            else:
+                raise
+    
+    # Legacy session validation (for AUTH_ACCEPT_LEGACY_SESSION=true or when Auth_Module unavailable)
+    if user_id is None:
+        session = await db.user_sessions.find_one(
+            {"session_token": token},
+            {"_id": 0, "user_id": 1, "expires_at": 1},
+        )
 
-    if not session:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    # Normalise expires_at to an aware datetime before comparison
-    expires_at: datetime | None = session.get("expires_at")
-    if expires_at is not None:
-        if isinstance(expires_at, str):
-            expires_at = datetime.fromisoformat(expires_at)
-        # If stored as naive UTC (no tzinfo), attach UTC timezone
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if expires_at < datetime.now(timezone.utc):
+        if not session:
             raise HTTPException(status_code=401, detail="Authentication required")
 
-    # ------------------------------------------------------------------
-    # Step 3: Load user role and is_prime from users collection
-    # ------------------------------------------------------------------
-    user_id = session.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        # Normalise expires_at to an aware datetime before comparison
+        expires_at: datetime | None = session.get("expires_at")
+        if expires_at is not None:
+            if isinstance(expires_at, str):
+                expires_at = datetime.fromisoformat(expires_at)
+            # If stored as naive UTC (no tzinfo), attach UTC timezone
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < datetime.now(timezone.utc):
+                raise HTTPException(status_code=401, detail="Authentication required")
 
-    user = await db.users.find_one(
-        {"user_id": user_id},
-        {"_id": 0, "role": 1, "is_prime": 1},
-    )
+        # ------------------------------------------------------------------
+        # Step 3: Load user role and is_prime from users collection
+        # ------------------------------------------------------------------
+        user_id = session.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
 
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        user = await db.users.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "role": 1, "is_prime": 1, "business_access": 1},
+        )
+
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # ------------------------------------------------------------------
+    # Step 4: RBAC check (admin bypass)
+    # ------------------------------------------------------------------
+    role: str = user.get("role", "")
+
+    # super_admin, business_admin, staff — always permitted
+    if role in _ALLOWED_ROLES:
+        return user
 
     # ------------------------------------------------------------------
     # Step 4: RBAC check (admin bypass)

@@ -11,3 +11,8 @@ dist/
 
 # AWS artifacts
 layer/
+
+# Local dev — never commit these
+.env.local
+chat-ui/.env.local
+*.env.local

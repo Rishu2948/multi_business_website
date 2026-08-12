@@ -1,0 +1,276 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Stack 8 - CloudFront distribution for the SRE Copilot React Chat UI.
+
+  Architecture:
+    Browser → CloudFront (HTTPS) → private S3 bucket (OAC)
+    Access is restricted to a configurable IP allowlist so only your
+    team/office can reach the tool. The S3 bucket has NO public access;
+    CloudFront Origin Access Control (OAC) is the only authorised reader.
+
+  What this creates:
+    • CloudFrontOAC          — Origin Access Control identity
+    • UiBucketOACPolicy      — S3 bucket policy allowing only this OAC
+    • CloudFrontDistribution — HTTPS distribution with IP-based WAF
+    • WebACL                 — AWS WAFv2 rule that allows only AllowedCidrIps
+    • Outputs: CloudFrontUrl (the URL your SREs bookmark)
+
+  Deployment order: must be deployed AFTER stack 03-s3-buckets (imports
+  UiBucketArn, UiBucketDomainName, UiBucketName).
+
+  Note on WAFv2 scope:
+    CloudFront distributions must use WAFv2 WebACLs created in us-east-1
+    regardless of the stack's deployment region. If you deploy this stack
+    in a region other than us-east-1 you must deploy the WebACL separately
+    in us-east-1 and pass its ARN as AllowListWebAclArn parameter instead
+    of letting this stack create it. The simplest approach is to deploy
+    the entire sre-copilot stack set from us-east-1.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Logical environment name; used as a resource name prefix/tag.
+
+  AllowedCidrIps:
+    Type: CommaDelimitedList
+    Description: >
+      Comma-separated list of IPv4 CIDR blocks that are allowed to access
+      the SRE Copilot UI via CloudFront. All other IPs receive HTTP 403.
+      Examples:
+        Single IP (your home):       203.0.113.42/32
+        Office subnet:               10.0.1.0/24
+        Multiple CIDRs:              203.0.113.42/32,198.51.100.0/24
+      To find your current public IP: curl -s https://checkip.amazonaws.com
+    Default: "0.0.0.0/0"
+    # Default is open (0.0.0.0/0) so the first deploy succeeds without
+    # configuration. Change this in infra/params/dev.json to your real IP.
+
+  DefaultRootObject:
+    Type: String
+    Default: index.html
+    Description: >
+      The object CloudFront returns for requests to the root URL (/).
+      Should match the Vite build output entry point.
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # --------------------------------------------------------------------------
+  # WebACL — AWS WAFv2 IP allowlist
+  #
+  # SCOPE must be CLOUDFRONT, which requires the WebACL to be created in
+  # us-east-1. Deploy this stack from us-east-1 to satisfy that constraint.
+  #
+  # The rule allows only the IPs in AllowedCidrIps. The default action is
+  # Block, so any IP not on the list receives 403 Forbidden.
+  # --------------------------------------------------------------------------
+  WebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "sre-copilot-allowlist-${EnvironmentName}"
+      Description: >
+        IP allowlist WAF for the SRE Copilot CloudFront distribution.
+        Only IPs in AllowedCidrIps can access the UI.
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Block: {}   # Block everything not explicitly allowed
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "SreCopilotAllowlist${EnvironmentName}"
+      Rules:
+        - Name: AllowListedIPs
+          Priority: 0
+          Action:
+            Allow: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "SreCopilotAllowedIPs${EnvironmentName}"
+          Statement:
+            IPSetReferenceStatement:
+              Arn: !GetAtt AllowedIPSet.Arn
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --------------------------------------------------------------------------
+  # AllowedIPSet — WAFv2 IP set containing the permitted CIDR blocks
+  # --------------------------------------------------------------------------
+  AllowedIPSet:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: !Sub "sre-copilot-allowed-ips-${EnvironmentName}"
+      Description: IP addresses allowed to access the SRE Copilot UI.
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: !Ref AllowedCidrIps
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # --------------------------------------------------------------------------
+  # CloudFrontOAC — Origin Access Control
+  #
+  # OAC is the modern replacement for Origin Access Identity (OAI).
+  # It signs requests from CloudFront to S3 using SigV4 so the S3 bucket
+  # policy can allow only requests that originate from this distribution.
+  # --------------------------------------------------------------------------
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "sre-copilot-oac-${EnvironmentName}"
+        Description: >
+          Origin Access Control for the SRE Copilot UI S3 bucket.
+          Grants CloudFront signed-request access to the private bucket.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # --------------------------------------------------------------------------
+  # UiBucketOACPolicy — S3 bucket policy
+  #
+  # Allows s3:GetObject ONLY from the CloudFront service principal when the
+  # request is signed by the OAC above (aws:SourceArn scoped to this
+  # distribution). The bucket itself has all public access blocked.
+  # --------------------------------------------------------------------------
+  UiBucketOACPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !ImportValue UiBucketName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontOACGetObject
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub
+              - "${BucketArn}/*"
+              - BucketArn: !ImportValue UiBucketArn
+            Condition:
+              StringEquals:
+                # Scope the policy to this specific distribution only
+                aws:SourceArn: !Sub
+                  - "arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistId}"
+                  - DistId: !GetAtt CloudFrontDistribution.Id
+
+  # --------------------------------------------------------------------------
+  # CloudFrontDistribution
+  #
+  # Key settings:
+  #   • PriceClass_100   — US, Canada, Europe only (cheapest; fine for
+  #                        internal tooling). Change to PriceClass_All for
+  #                        global coverage.
+  #   • HTTPS only       — ViewerProtocolPolicy: redirect-to-https
+  #   • SPA routing      — CustomErrorResponses maps 403/404 → index.html
+  #                        with 200 so React Router handles all paths.
+  #   • WAF              — WebACLId restricts access to AllowedCidrIps.
+  #   • OAC              — OriginAccessControlId links to CloudFrontOAC.
+  #   • Caching          — CachingOptimized managed policy for static assets;
+  #                        DefaultTTL 86400s (24h). Cache is invalidated by
+  #                        deploy.sh after every UI deployment.
+  # --------------------------------------------------------------------------
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "SRE Copilot UI — ${EnvironmentName} (internal, IP-restricted)"
+        Enabled: true
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+
+        # WAF WebACL — enforces IP allowlist
+        WebACLId: !GetAtt WebACL.Arn
+
+        # Default root object — serves index.html for requests to /
+        DefaultRootObject: !Ref DefaultRootObject
+
+        # Origin: private S3 bucket accessed via OAC (NOT S3 website endpoint)
+        Origins:
+          - Id: SreUiS3Origin
+            DomainName: !ImportValue UiBucketDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""   # empty string = use OAC, not OAI
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+
+        # Default cache behaviour — serve all paths from S3
+        DefaultCacheBehavior:
+          TargetOriginId: SreUiS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          # CachingOptimized managed policy (ID is fixed across all accounts)
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          # No query string / cookie forwarding for a static SPA
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+
+        # SPA fallback: map S3's 403/404 (unknown paths) → index.html + 200
+        # This is required for React Router client-side routing to work.
+        # S3 returns 403 (not 404) for missing objects when public access is
+        # blocked, so we must handle both codes.
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+      Tags:
+        - Key: Project
+          Value: sre-copilot
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+# ---------------------------------------------------------------------------
+# Outputs / Exports
+# ---------------------------------------------------------------------------
+Outputs:
+
+  CloudFrontUrl:
+    Description: >
+      HTTPS URL for the SRE Copilot React Chat UI.
+      This is the URL your SREs bookmark.
+      Format: https://{distribution-id}.cloudfront.net
+      Only accessible from the IP addresses in AllowedCidrIps.
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+    Export:
+      Name: CloudFrontUrl
+
+  CloudFrontDistributionId:
+    Description: >
+      CloudFront Distribution ID.
+      Used by deploy.sh to create cache invalidations after each UI deployment:
+        aws cloudfront create-invalidation --distribution-id <ID> --paths "/*"
+    Value: !GetAtt CloudFrontDistribution.Id
+    Export:
+      Name: CloudFrontDistributionId
+
+  WebACLArn:
+    Description: ARN of the WAFv2 WebACL IP allowlist.
+    Value: !GetAtt WebACL.Arn
+    Export:
+      Name: SreCopilotWebACLArn

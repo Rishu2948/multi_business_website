@@ -14,5 +14,9 @@
   {
     "ParameterKey": "KnowledgeBaseIdOverride",
     "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AllowedCidrIps",
+    "ParameterValue": "0.0.0.0/0"
   }
 ]

@@ -28,6 +28,69 @@ def _is_production() -> bool:
     return os.environ.get("ENVIRONMENT", "development").lower() == "production"
 
 
+# Validate production security configuration
+def validate_production_config():
+    """Validate that production environment has secure configuration."""
+    if _is_production():
+        errors = []
+        
+        # Check for insecure webhook verification skip
+        if os.environ.get("WEBHOOK_SKIP_VERIFY", "false").lower() == "true":
+            errors.append("WEBHOOK_SKIP_VERIFY cannot be true in production")
+        
+        # Check for MFA enforcement without encryption key
+        if os.environ.get("MFA_ENFORCE_FOR_ADMINS", "false").lower() == "true":
+            if not os.environ.get("MFA_ENCRYPTION_KEY"):
+                errors.append("MFA_ENCRYPTION_KEY is required when MFA_ENFORCE_FOR_ADMINS is true")
+        
+        # Check for missing JWT secret
+        if not os.environ.get("JWT_SECRET"):
+            errors.append("JWT_SECRET is required in production")
+        
+        # Check for missing webhook secret
+        if not os.environ.get("RAZORPAY_WEBHOOK_SECRET"):
+            errors.append("RAZORPAY_WEBHOOK_SECRET should be set in production for payment security")
+        
+        if errors:
+            error_msg = "Production security configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Run startup tasks including security validation."""
+    validate_production_config()
+    
+    # Ensure Auth_Module indexes exist
+    try:
+        from backend.auth.sessions import ensure_session_indexes
+        from backend.auth.audit import ensure_audit_indexes
+        await ensure_session_indexes(db)
+        await ensure_audit_indexes(db)
+        logger.info("Auth_Module indexes created/verified")
+    except Exception as e:
+        logger.warning(f"Failed to create Auth_Module indexes: {e}")
+    
+    # Add security headers middleware
+    try:
+        from backend.auth.headers import SecurityHeadersMiddleware
+        from backend.auth.csrf import CSRFProtection, get_allowed_origins
+        from starlette.middleware.base import BaseHTTPMiddleware
+        
+        # Add security headers middleware
+        app.add_middleware(SecurityHeadersMiddleware)
+        
+        # Add CSRF protection middleware
+        allowed_origins = get_allowed_origins()
+        csrf_middleware = CSRFProtection(allowed_origins)
+        app.add_middleware(BaseHTTPMiddleware, dispatch=csrf_middleware)
+        
+        logger.info("Security middleware added")
+    except Exception as e:
+        logger.warning(f"Failed to add security middleware: {e}")
+
+
 def _cors_origins() -> list:
     raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
     origins = [o.strip() for o in raw.split(",") if o.strip()]
@@ -224,7 +287,12 @@ async def compute_preference_vector(user_id: str) -> dict:
 
 @api_router.post("/auth/google")
 async def google_login(request: Request, response: Response):
-    """Verify Google ID token and create session"""
+    """Verify Google ID token and create session with JWT access + refresh tokens"""
+    from backend.auth.tokens import TokenManager
+    from backend.auth.audit import write_audit_event, AuditEventType
+    from backend.auth.mfa import should_enforce_mfa, is_user_mfa_enrolled
+    from backend.auth.rbac import is_privileged_role
+    
     body = await request.json()
     token = body.get("token")
     
@@ -265,27 +333,93 @@ async def google_login(request: Request, response: Response):
                 {"$set": {"last_login": datetime.now(timezone.utc)}}
             )
         
-        # Create session
-        session_data = {
-            "session_id": str(uuid.uuid4()),
-            "user_id": user["user_id"],
-            "session_token": f"token_{uuid.uuid4().hex}",
-            "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
-            "created_at": datetime.now(timezone.utc),
+        # Check if MFA should be enforced for privileged users
+        from backend.auth.mfa import should_enforce_mfa, is_user_mfa_enrolled
+        from backend.auth.rbac import is_privileged_role
+        
+        if should_enforce_mfa(user["role"]) and not is_user_mfa_enrolled(user):
+            # Return MFA enrollment required
+            await write_audit_event(
+                db,
+                event_type=AuditEventType.LOGIN_FAILURE,
+                user_id=user["user_id"],
+                ip_address=request.client.host if request.client else None,
+                details={"reason": "mfa_enrollment_required"},
+                success=False
+            )
+            return {
+                "message": "MFA enrollment required",
+                "mfa_required": True,
+                "mfa_enrollment": True
+            }
+        
+        if should_enforce_mfa(user["role"]) and is_user_mfa_enrolled(user):
+            # Return MFA verification required (create pending session)
+            from backend.auth.sessions import create_session
+            device_info = {
+                "ip_address": request.client.host,
+                "user_agent": request.headers.get("user-agent", "")
+            }
+            session_id, refresh_token = await create_session(
+                db,
+                user["user_id"],
+                604800,  # 7 days
+                device_info,
+                max_sessions=5
+            )
+            
+            await write_audit_event(
+                db,
+                event_type=AuditEventType.LOGIN_FAILURE,
+                user_id=user["user_id"],
+                ip_address=request.client.host if request.client else None,
+                details={"reason": "mfa_verification_required"},
+                success=False
+            )
+            
+            return {
+                "message": "MFA verification required",
+                "mfa_required": True,
+                "mfa_enrollment": False,
+                "session_id": session_id,
+                "user": user
+            }
+        
+        # Create session using Auth_Module TokenManager
+        token_manager = TokenManager(db)
+        device_info = {
             "ip_address": request.client.host,
             "user_agent": request.headers.get("user-agent", "")
         }
-        await db.user_sessions.insert_one(session_data)
         
-        # Local dev uses HTTP — Secure cookies are ignored by the browser on http://localhost
+        session_id, refresh_token = await token_manager.mint_refresh_token(
+            user["user_id"],
+            device_info,
+            max_sessions=5
+        )
+        
+        # Mint access token
+        access_token = token_manager.mint_access_token(user["user_id"], session_id)
+        
+        # Set refresh token as HttpOnly cookie
         response.set_cookie(
-            key="session_token",
-            value=session_data["session_token"],
+            key="refresh_token",
+            value=refresh_token,
             httponly=True,
             secure=_is_production(),
             samesite="none" if _is_production() else "lax",
             path="/",
-            max_age=7 * 24 * 60 * 60,
+            max_age=7 * 24 * 60 * 60,  # 7 days
+        )
+        
+        # Emit audit event for successful login
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.LOGIN_SUCCESS,
+            user_id=user["user_id"],
+            ip_address=request.client.host if request.client else None,
+            details={"method": "google_oauth"},
+            success=True
         )
 
         # --- Compute preference vector and recommended products for this user ---
@@ -359,6 +493,7 @@ async def google_login(request: Request, response: Response):
             logger.warning(f"Error fetching prime memberships for {user['user_id']}: {e}")
 
         return {
+            "access_token": access_token,
             "user": {
                 "user_id": user["user_id"],
                 "email": user["email"],
@@ -375,14 +510,197 @@ async def google_login(request: Request, response: Response):
         }
     except ValueError as e:
         logger.warning("Invalid Google token: %s", e)
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.LOGIN_FAILURE,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "invalid_google_token"},
+            success=False
+        )
         raise HTTPException(status_code=401, detail="Invalid Google token")
     except Exception as e:
         logger.exception("Google login failed")
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.LOGIN_FAILURE,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "internal_error"},
+            success=False
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@api_router.post("/auth/refresh")
+async def refresh_token(request: Request, response: Response):
+    """Refresh access token using refresh token from cookie"""
+    from backend.auth.tokens import TokenManager
+    from backend.auth.audit import write_audit_event, AuditEventType
+    
+    # Get refresh token from cookie
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token required")
+    
+    try:
+        token_manager = TokenManager(db)
+        device_info = {
+            "ip_address": request.client.host,
+            "user_agent": request.headers.get("user-agent", "")
+        }
+        
+        # Rotate refresh token and get new access token
+        session_id, new_refresh_token, access_token = await token_manager.rotate_refresh_token(
+            refresh_token,
+            device_info
+        )
+        
+        # Set new refresh token cookie
+        response.set_cookie(
+            key="refresh_token",
+            value=new_refresh_token,
+            httponly=True,
+            secure=_is_production(),
+            samesite="none" if _is_production() else "lax",
+            path="/",
+            max_age=7 * 24 * 60 * 60,  # 7 days
+        )
+        
+        # Emit audit event
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.TOKEN_REFRESH,
+            ip_address=request.client.host if request.client else None,
+            success=True
+        )
+        
+        return {"access_token": access_token}
+    
+    except HTTPException as e:
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.TOKEN_REFRESH,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "invalid_refresh_token"},
+            success=False
+        )
+        raise
+    except Exception as e:
+        logger.exception("Token refresh failed")
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.TOKEN_REFRESH,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "internal_error"},
+            success=False
+        )
+        raise HTTPException(status_code=500, detail="Token refresh failed")
+
+
+@api_router.post("/auth/logout")
+async def logout(request: Request, response: Response):
+    """Logout user by revoking session and clearing cookies"""
+    from backend.auth.tokens import TokenManager
+    from backend.auth.audit import write_audit_event, AuditEventType
+    
+    # Get refresh token from cookie
+    refresh_token = request.cookies.get("refresh_token")
+    
+    try:
+        if refresh_token:
+            token_manager = TokenManager(db)
+            session = await token_manager.verify_refresh_token(refresh_token)
+            if session:
+                # Revoke session
+                from backend.auth.sessions import revoke_session
+                await revoke_session(db, session.session_id)
+        
+        # Clear cookies
+        response.delete_cookie(
+            key="refresh_token",
+            path="/",
+            secure=_is_production(),
+            samesite="none" if _is_production() else "lax"
+        )
+        response.delete_cookie(
+            key="session_token",
+            path="/",
+            secure=_is_production(),
+            samesite="none" if _is_production() else "lax"
+        )
+        
+        # Emit audit event
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.LOGOUT,
+            ip_address=request.client.host if request.client else None,
+            success=True
+        )
+        
+        return {"message": "Logged out successfully"}
+    
+    except Exception as e:
+        logger.exception("Logout failed")
+        # Still clear cookies even if revocation fails
+        response.delete_cookie(
+            key="refresh_token",
+            path="/",
+            secure=_is_production(),
+            samesite="none" if _is_production() else "lax"
+        )
+        response.delete_cookie(
+            key="session_token",
+            path="/",
+            secure=_is_production(),
+            samesite="none" if _is_production() else "lax"
+        )
+        return {"message": "Logged out successfully"}
+
 @api_router.get("/auth/me")
-async def get_current_user_info(current_user: dict = Depends(get_current_user)):
-    """Get current authenticated user details"""
+async def get_current_user_info(request: Request):
+    """Get current authenticated user details using Auth_Module"""
+    from backend.auth.dependencies import get_current_user_with_db
+    
+    # Override get_current_user to use local db
+    async def get_current_user_with_db_local(request: Request):
+        from backend.auth.dependencies import extract_token
+        from backend.auth.tokens import TokenManager
+        from backend.auth.sessions import update_last_seen
+        
+        token = await extract_token(request)
+        
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        # Try as JWT access token first
+        try:
+            token_manager = TokenManager(db)
+            payload = token_manager.verify_access_token(token)
+            
+            # Load user from DB for authorization
+            user = await db.users.find_one(
+                {"user_id": payload["sub"]},
+                {"_id": 0}
+            )
+            
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found")
+            
+            # Update last seen
+            await update_last_seen(db, payload["sid"])
+            
+            return user
+        
+        except HTTPException:
+            # If JWT fails, try legacy session if enabled
+            from backend.auth.tokens import validate_legacy_session
+            user = await validate_legacy_session(db, token)
+            
+            if user:
+                return user
+            
+            raise HTTPException(status_code=401, detail="Invalid or expired credentials")
+    
+    current_user = await get_current_user_with_db_local(request)
     # Get Prime memberships for user
     from prime.access import get_enabled_features
     prime_memberships = []
@@ -1127,21 +1445,46 @@ async def update_user(
     data = await request.json()
     updates = {"updated_at": datetime.now(timezone.utc)}
 
+    # Track if role or business_access changed
+    privilege_changed = False
+
     if "role" in data:
         allowed = ["super_admin", "business_admin", "staff", "delivery_agent", "customer"]
         if data["role"] not in allowed:
             raise HTTPException(status_code=400, detail=f"role must be one of {allowed}")
+        if user.get("role") != data["role"]:
+            privilege_changed = True
         updates["role"] = data["role"]
 
     if "business_access" in data:
         if not isinstance(data["business_access"], list):
             raise HTTPException(status_code=400, detail="business_access must be a list")
+        if user.get("business_access") != data["business_access"]:
+            privilege_changed = True
         updates["business_access"] = data["business_access"]
 
     if len(updates) == 1:
         raise HTTPException(status_code=400, detail="No valid fields to update")
 
     await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    
+    # Revoke all sessions if privileges changed
+    if privilege_changed:
+        from backend.auth.sessions import revoke_all_sessions
+        revoked_count = await revoke_all_sessions(db, user_id)
+        logger.info(f"Revoked {revoked_count} sessions for user {user_id} due to privilege change")
+        
+        # Emit audit event
+        from backend.auth.audit import write_audit_event, AuditEventType
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.ROLE_CHANGED if "role" in updates else AuditEventType.BUSINESS_ACCESS_CHANGED,
+            user_id=user_id,
+            ip_address=request.client.host if request.client else None,
+            details={"updated_by": current_user["user_id"], "changes": list(updates.keys())},
+            success=True
+        )
+    
     updated = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return {"message": "User updated", "user": updated}
 

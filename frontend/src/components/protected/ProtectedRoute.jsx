@@ -1,6 +1,22 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
+/**
+ * ProtectedRoute Component
+ * 
+ * IMPORTANT: This is UI-ONLY protection for better UX.
+ * Real security is enforced on the server side via:
+ * - Backend Auth_Module (RBAC, JWT validation, business scoping)
+ * - API client includes access tokens in Authorization header
+ * - All API endpoints are protected by backend dependencies
+ * 
+ * This component provides:
+ * - Better UX by preventing unauthorized page navigation
+ * - Client-side role-based access control
+ * - Loading states and proper redirects
+ * 
+ * Server-side enforcement happens via the backend API and Auth_Module.
+ */
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   const { user, loading, isAuthenticated } = useAuth();
   const location = useLocation();
@@ -22,7 +38,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Check role permissions
+  // Check role permissions (UI-only enforcement)
   if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white p-8">

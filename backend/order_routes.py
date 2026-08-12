@@ -14,36 +14,63 @@ def set_db(database):
 # Import models
 from ecommerce_models import OrderCreate, Order
 
-# Helper to get optional user
-async def get_optional_user(request: Request):
-    """Get user if authenticated, return None otherwise"""
+# Import Auth_Module
+from backend.auth.dependencies import get_current_user, get_optional_user
+from backend.auth.rbac import require_roles, check_business_access
+
+# Override get_current_user to use local db
+async def get_current_user_with_db(request: Request):
+    """Get current user using local db instance"""
+    from backend.auth.dependencies import extract_token
+    from backend.auth.tokens import TokenManager
+    from backend.auth.sessions import update_last_seen
+    
+    token = await extract_token(request)
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Try as JWT access token first
     try:
-        session_token = request.cookies.get("session_token") or request.headers.get("authorization", "").replace("Bearer ", "")
-        if not session_token:
-            return None
+        token_manager = TokenManager(db)
+        payload = token_manager.verify_access_token(token)
         
-        session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
-        if not session:
-            return None
+        # Load user from DB for authorization
+        user = await db.users.find_one(
+            {"user_id": payload["sub"]},
+            {"_id": 0}
+        )
         
-        expires_at = session["expires_at"]
-        if isinstance(expires_at, str):
-            expires_at = datetime.fromisoformat(expires_at)
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
         
-        if expires_at < datetime.now(timezone.utc):
-            return None
+        # Update last seen
+        await update_last_seen(db, payload["sid"])
         
-        user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
         return user
-    except:
+    
+    except HTTPException:
+        # If JWT fails, try legacy session if enabled
+        from backend.auth.tokens import validate_legacy_session
+        user = await validate_legacy_session(db, token)
+        
+        if user:
+            return user
+        
+        raise HTTPException(status_code=401, detail="Invalid or expired credentials")
+
+# Override get_optional_user to use local db
+async def get_optional_user_with_db(request: Request):
+    """Get user if authenticated, None otherwise"""
+    try:
+        return await get_current_user_with_db(request)
+    except HTTPException:
         return None
 
 @router.post("/create")
-async def create_order(order_data: OrderCreate, request: Request):
-    """Create a new order"""
-    user = await get_optional_user(request)
+async def create_order(order_data: OrderCreate, request: Request, current_user: dict = Depends(get_current_user_with_db)):
+    """Create a new order (authenticated only)"""
+    user = current_user
     
     # Validate stock availability
     for item in order_data.items:
@@ -72,7 +99,7 @@ async def create_order(order_data: OrderCreate, request: Request):
     order_id = f"ord_{uuid.uuid4().hex[:12]}"
     order = {
         "order_id": order_id,
-        "user_id": user["user_id"] if user else None,
+        "user_id": user["user_id"],
         "business_id": "whisked_words",
         "items": [item.dict() for item in order_data.items],
         "delivery_info": order_data.delivery_info.dict(),
@@ -121,12 +148,7 @@ async def create_order(order_data: OrderCreate, request: Request):
             )
     
     # Clear cart
-    if user:
-        await db.carts.delete_one({"user_id": user["user_id"]})
-    else:
-        session_id = request.cookies.get("guest_session_id")
-        if session_id:
-            await db.carts.delete_one({"session_id": session_id})
+    await db.carts.delete_one({"user_id": user["user_id"]})
     
     # Send email for COD orders + create notification
     if order["payment_method"] == "cod":
@@ -136,58 +158,90 @@ async def create_order(order_data: OrderCreate, request: Request):
             import asyncio
             asyncio.create_task(send_order_email(email, order))
     
-    if user:
-        from order_management_routes import create_notification
-        import asyncio
-        asyncio.create_task(create_notification(
-            user["user_id"],
-            "Order placed successfully",
-            f"Your order #{order_id} has been placed. Total: ₹{order['total']}",
-            order_id,
-            "order_placed"
-        ))
+    from order_management_routes import create_notification
+    import asyncio
+    asyncio.create_task(create_notification(
+        user["user_id"],
+        "Order placed successfully",
+        f"Your order #{order_id} has been placed. Total: ₹{order['total']}",
+        order_id,
+        "order_placed"
+    ))
     
     return {"order_id": order_id, "message": "Order created successfully"}
 
 @router.get("/my-orders")
-async def get_my_orders(request: Request):
+async def get_my_orders(current_user: dict = Depends(get_current_user_with_db)):
     """Get orders for logged-in user"""
-    user = await get_optional_user(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
     orders = await db.orders.find(
-        {"user_id": user["user_id"]},
+        {"user_id": current_user["user_id"]},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     
     return {"orders": orders}
 
 @router.get("/{order_id}")
-async def get_order(order_id: str, request: Request):
-    """Get specific order details"""
+async def get_order(order_id: str, request: Request, current_user: dict = Depends(get_current_user_with_db)):
+    """Get specific order details (authenticated only)"""
     order = await db.orders.find_one({"order_id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    # Check if user owns this order (for logged-in users)
-    user = await get_optional_user(request)
-    if user and order.get("user_id") != user["user_id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Check if user owns this order or has admin access
+    if current_user["role"] == "super_admin":
+        return order
     
-    return order
+    if order.get("user_id") == current_user["user_id"]:
+        return order
+    
+    # Check business access for non-owners
+    if current_user["role"] in ["business_admin", "staff"]:
+        if await check_business_access(current_user, order.get("business_id", "whisked_words")):
+            return order
+    
+    raise HTTPException(status_code=403, detail="Access denied")
 
 @router.put("/{order_id}/status")
-async def update_order_status(order_id: str, status: str, request: Request):
-    """Update order status (Admin only)"""
-    # This should have admin auth, but for now we'll allow it
+async def update_order_status(
+    order_id: str, 
+    status: str, 
+    request: Request,
+    current_user: dict = Depends(get_current_user_with_db)
+):
+    """Update order status (Admin/Staff only with business scope)"""
+    # Check role
+    if current_user["role"] not in ["super_admin", "business_admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Access forbidden. Admin/Staff role required")
+    
     order = await db.orders.find_one({"order_id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Check business access for non-super_admin
+    if current_user["role"] != "super_admin":
+        if not await check_business_access(current_user, order.get("business_id", "whisked_words")):
+            raise HTTPException(status_code=403, detail="Access denied to this business")
     
     await db.orders.update_one(
         {"order_id": order_id},
         {"$set": {"order_status": status, "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    # Emit audit event for privileged action
+    from backend.auth.audit import write_audit_event, AuditEventType
+    await write_audit_event(
+        db,
+        event_type=AuditEventType.PRIVILEGED_ACTION,
+        user_id=current_user["user_id"],
+        business_id=order.get("business_id"),
+        ip_address=request.client.host if request.client else None,
+        details={
+            "action": "update_order_status",
+            "order_id": order_id,
+            "old_status": order.get("order_status"),
+            "new_status": status
+        },
+        success=True
     )
     
     return {"message": "Order status updated"}

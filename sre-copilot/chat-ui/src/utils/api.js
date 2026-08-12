@@ -22,7 +22,9 @@ export async function postChat(question, sessionId) {
 
   if (!apiUrl) {
     throw new Error(
-      'API endpoint is not configured. Set VITE_API_URL before building.'
+      'API endpoint is not configured. ' +
+      'For local dev: add VITE_API_URL=http://localhost:8000 to chat-ui/.env.local. ' +
+      'For production: set VITE_API_URL to your API Gateway URL before building.'
     );
   }
 
