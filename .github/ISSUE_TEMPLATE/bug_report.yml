@@ -1,0 +1,81 @@
+name: "🐛 Bug Report"
+description: Report something that is broken or not working as expected
+title: "[BUG] "
+labels: ["type: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to report a bug. Be as specific as possible — a good bug report cuts investigation time significantly.
+
+  - type: input
+    id: related_feature
+    attributes:
+      label: Related Feature / Story
+      description: Link to the feature or story this bug belongs to (if known).
+      placeholder: "#"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Observe '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behaviour
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behaviour
+      description: What actually happened? Include error messages, screenshots, or logs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - OS: macOS / Linux / Windows
+        - Browser: Chrome 124 / Firefox 125
+        - Service: backend / ai-chatbot / frontend
+        - Branch / Commit: main / abc1234
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - P0 - Critical (system down / data loss)
+        - P1 - High (major feature broken)
+        - P2 - Medium (feature degraded, workaround exists)
+        - P3 - Low (cosmetic / minor)
+    validations:
+      required: true
+
+  - type: textarea
+    id: possible_fix
+    attributes:
+      label: Possible Fix
+      description: If you have a hunch about what's causing it, share it here.

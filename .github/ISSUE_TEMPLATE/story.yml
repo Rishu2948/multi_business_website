@@ -1,0 +1,68 @@
+name: "📖 User Story"
+description: A user-facing requirement within a feature
+title: "[STORY] "
+labels: ["type: story"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for a user story. Stories capture a single user need and should be completable within one sprint.
+
+  - type: input
+    id: feature
+    attributes:
+      label: Parent Feature
+      description: Link to the parent feature issue (e.g., #55)
+      placeholder: "#"
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_story
+    attributes:
+      label: User Story
+      description: Write the story in standard format.
+      placeholder: "As a [role], I want [capability], so that [benefit]."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Specific, testable conditions that must be true for this story to be accepted.
+      placeholder: |
+        - [ ] Given ... When ... Then ...
+        - [ ] Given ... When ... Then ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of Scope
+      description: Explicitly call out anything this story does NOT cover.
+
+  - type: input
+    id: story_points
+    attributes:
+      label: Story Points
+      placeholder: "e.g., 3"
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Medium
+        - P3 - Low
+    validations:
+      required: true
+
+  - type: input
+    id: sprint
+    attributes:
+      label: Target Sprint
+      placeholder: "e.g., Sprint 3"

@@ -1,0 +1,70 @@
+name: "✨ Feature"
+description: A discrete, shippable capability that belongs to an epic
+title: "[FEATURE] "
+labels: ["type: feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for a new feature. A feature is a self-contained deliverable that lives inside an epic.
+
+  - type: input
+    id: epic
+    attributes:
+      label: Parent Epic
+      description: Link to the parent epic issue (e.g., #42)
+      placeholder: "#"
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What does this feature do in one or two sentences?
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_value
+    attributes:
+      label: User Value
+      description: Who benefits from this feature and how?
+      placeholder: "e.g., Business owners can see which products are most viewed so they can prioritise stock."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Define what "done" looks like. Use Given/When/Then or a checklist.
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_notes
+    attributes:
+      label: Technical Notes
+      description: Any known implementation details, constraints, or dependencies.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Medium
+        - P3 - Low
+    validations:
+      required: true
+
+  - type: input
+    id: sprint
+    attributes:
+      label: Target Sprint
+      placeholder: "e.g., Sprint 3"

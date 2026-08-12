@@ -1,0 +1,72 @@
+name: "🏔️ Epic"
+description: A large body of work spanning multiple features and sprints
+title: "[EPIC] "
+labels: ["type: epic"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to define a high-level epic. Epics group related features under a common theme or goal.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What is the overall objective of this epic?
+      placeholder: "e.g., Give admins full visibility into user engagement across all business verticals."
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: Background / Context
+      description: Why is this epic needed? What problem does it solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: In Scope
+      description: List the features or capabilities this epic covers.
+      placeholder: |
+        - Feature A
+        - Feature B
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of Scope
+      description: What is explicitly excluded from this epic?
+
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Success Criteria
+      description: How do we know this epic is done?
+      placeholder: |
+        - Metric A reaches X
+        - Feature B is live and monitored
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Medium
+        - P3 - Low
+    validations:
+      required: true
+
+  - type: input
+    id: milestone
+    attributes:
+      label: Target Release / Milestone
+      placeholder: "e.g., v1.2"

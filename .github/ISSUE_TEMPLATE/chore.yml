@@ -1,0 +1,48 @@
+name: "🧹 Chore"
+description: Maintenance work — refactors, dependency upgrades, CI/CD fixes, documentation
+title: "[CHORE] "
+labels: ["type: chore"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for maintenance tasks that don't add user-facing value but keep the codebase healthy.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done and why?
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this chore needed now? What risk does it address or what does it enable?
+    validations:
+      required: true
+
+  - type: textarea
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      placeholder: |
+        - [ ] Change implemented
+        - [ ] Tests pass
+        - [ ] No regressions introduced
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Medium
+        - P3 - Low
+    validations:
+      required: true

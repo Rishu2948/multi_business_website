@@ -1,0 +1,61 @@
+name: "🔧 Task"
+description: A technical to-do item within a story
+title: "[TASK] "
+labels: ["type: task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for a technical task. Tasks are implementation-level work items that belong to a story.
+
+  - type: input
+    id: story
+    attributes:
+      label: Parent Story
+      description: Link to the parent story issue (e.g., #61)
+      placeholder: "#"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done? Be specific enough that any team member can pick it up.
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation_notes
+    attributes:
+      label: Implementation Notes
+      description: Files to edit, APIs to call, patterns to follow, etc.
+
+  - type: textarea
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      placeholder: |
+        - [ ] Code written and self-reviewed
+        - [ ] Unit tests added
+        - [ ] PR linked to this issue
+    validations:
+      required: true
+
+  - type: input
+    id: story_points
+    attributes:
+      label: Story Points
+      placeholder: "e.g., 1"
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Medium
+        - P3 - Low
+    validations:
+      required: true
