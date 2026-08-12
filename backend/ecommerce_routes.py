@@ -23,11 +23,58 @@ def set_db(database):
 
 router = APIRouter(prefix="/api/ecommerce")
 
-# Helper function to get current user (optional, for guest checkout)
-async def get_optional_user(request: Request):
-    """Get user if authenticated, return None otherwise"""
+# Import Auth_Module
+from backend.auth.dependencies import get_current_user, get_optional_user
+from backend.auth.rbac import check_business_access
+
+# Override get_current_user to use local db
+async def get_current_user_with_db(request: Request):
+    """Get current user using local db instance"""
+    from backend.auth.dependencies import extract_token
+    from backend.auth.tokens import TokenManager
+    from backend.auth.sessions import update_last_seen
+    
+    token = await extract_token(request)
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Try as JWT access token first
     try:
-        session_token = request.cookies.get("session_token") or request.headers.get("authorization", "").replace("Bearer ", "")
+        token_manager = TokenManager(db)
+        payload = token_manager.verify_access_token(token)
+        
+        # Load user from DB for authorization
+        user = await db.users.find_one(
+            {"user_id": payload["sub"]},
+            {"_id": 0}
+        )
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        # Update last seen
+        await update_last_seen(db, payload["sid"])
+        
+        return user
+    
+    except HTTPException:
+        # If JWT fails, try legacy session if enabled
+        from backend.auth.tokens import validate_legacy_session
+        user = await validate_legacy_session(db, token)
+        
+        if user:
+            return user
+        
+        raise HTTPException(status_code=401, detail="Invalid or expired credentials")
+
+# Override get_optional_user to use local db
+async def get_optional_user_with_db(request: Request):
+    """Get user if authenticated, None otherwise"""
+    try:
+        return await get_current_user_with_db(request)
+    except HTTPException:
+        return None
         if not session_token:
             return None
         
@@ -53,7 +100,7 @@ async def get_optional_user(request: Request):
 @router.post("/cart/add")
 async def add_to_cart(item: CartCreate, request: Request):
     """Add item to cart (works for both guest and logged-in users)"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     
     # Get or create session ID for guest users
     session_id = request.cookies.get("guest_session_id")
@@ -128,7 +175,7 @@ async def add_to_cart(item: CartCreate, request: Request):
 @router.get("/cart")
 async def get_cart(request: Request):
     """Get current cart"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     session_id = request.cookies.get("guest_session_id")
     
     if user:
@@ -146,7 +193,7 @@ async def get_cart(request: Request):
 @router.put("/cart/{product_id}")
 async def update_cart_item(product_id: str, update: CartUpdate, request: Request, variant_id: str = None):
     """Update item quantity in cart"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     session_id = request.cookies.get("guest_session_id")
     
     if user:
@@ -179,7 +226,7 @@ async def update_cart_item(product_id: str, update: CartUpdate, request: Request
 @router.delete("/cart/{product_id}")
 async def remove_from_cart(product_id: str, request: Request, variant_id: str = None):
     """Remove item from cart"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     session_id = request.cookies.get("guest_session_id")
     
     if user:
@@ -210,7 +257,7 @@ async def remove_from_cart(product_id: str, request: Request, variant_id: str = 
 @router.delete("/cart")
 async def clear_cart(request: Request):
     """Clear entire cart"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     session_id = request.cookies.get("guest_session_id")
     
     if user:

@@ -292,18 +292,24 @@ async def post_message(
     "/session/{session_id}",
     response_model=SessionClearResponse,
     summary="Clear a chat session",
-    description="Delete the stored conversation context for the given session_id.",
+    description="Delete the stored conversation context for the given session_id. Requires privileged authentication.",
 )
 async def delete_session(
     session_id: str,
     db=Depends(get_db),
+    user: dict = Depends(check_chatbot_access),
 ) -> SessionClearResponse:
     """
     Clear an existing chat session.
 
     Returns 200 {"message": "Session cleared"} on success.
     Raises 400 if session_id is missing from the path or not found (Req 6.5).
+    Requires privileged authentication (admin/staff roles).
     """
+    # Check user has privileged role
+    if user.get("role") not in ["super_admin", "business_admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Access forbidden. Privileged role required")
+    
     if not session_id or not session_id.strip():
         raise HTTPException(status_code=400, detail="session_id is required")
 
@@ -325,20 +331,28 @@ async def delete_session(
     description=(
         "**Internal endpoint** — evicts the in-process TTLCache for the given "
         "business_id. Called by the existing backend after product updates/deletions. "
-        "Should be network-restricted (VPC / localhost) in production."
+        "Requires privileged authentication for security."
     ),
     include_in_schema=True,  # visible in docs but documented as internal
     tags=["internal"],
 )
-async def evict_cache(business_id: str) -> CacheEvictResponse:
+async def evict_cache(
+    business_id: str,
+    db=Depends(get_db),
+    user: dict = Depends(check_chatbot_access),
+) -> CacheEvictResponse:
     """
     Evict the catalog cache for a specific business.
 
     Idempotent — returns {"evicted": true} whether or not an entry was present.
-    Does NOT require authentication (network-level restriction assumed in production).
+    Requires privileged authentication (admin/staff roles) for security.
     """
-    result = evict_catalog_cache(business_id)
-    return CacheEvictResponse(evicted=result.get("evicted", True))
+    # Check user has privileged role
+    if user.get("role") not in ["super_admin", "business_admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Access forbidden. Privileged role required")
+    
+    evict_catalog_cache(business_id)
+    return CacheEvictResponse(evicted=True)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,158 @@
+name: Backend Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'deployment/cloudformation/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      run_auth_workflows:
+        description: 'Trigger auth deployment workflows'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: multi-business-bakery
+
+jobs:
+  build:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: |
+          cd backend
+          python -m pytest tests/ -v
+
+      - name: Build Docker image
+        run: |
+          cd backend
+          docker build -t ${{ env.PROJECT_NAME }}-backend:${{ github.sha }} .
+          docker tag ${{ env.PROJECT_NAME }}-backend:${{ github.sha }} ${{ env.PROJECT_NAME }}-backend:latest
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push to ECR
+        run: |
+          ECR_REGISTRY=${{ secrets.ECR_REGISTRY }}
+          ECR_REPOSITORY=${{ env.PROJECT_NAME }}-backend
+          
+          docker tag ${{ env.PROJECT_NAME }}-backend:${{ github.sha }} $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+          docker tag ${{ env.PROJECT_NAME }}-backend:${{ github.sha }} $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Store image tag
+        run: |
+          echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'staging' }}
+    needs: build
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update ECS task definition
+        run: |
+          ECR_REGISTRY=${{ secrets.ECR_REGISTRY }}
+          ECR_REPOSITORY=${{ env.PROJECT_NAME }}-backend
+          IMAGE_TAG=${{ needs.build.outputs.image_tag }}
+          
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition ${{ env.PROJECT_NAME }}-${{ inputs.environment || 'staging' }}-backend \
+            --query 'taskDefinition' \
+            --output json)
+          
+          TASK_DEF=$(echo $TASK_DEF | jq \
+            --arg image "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            '.containerDefinitions[0].image = $image')
+          
+          NEW_TASK_DEF=$(aws ecs register-task-definition \
+            --cli-input-json "$TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          
+          echo "new_task_def=$NEW_TASK_DEF" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ECS
+        run: |
+          CLUSTER_NAME=${{ env.PROJECT_NAME }}-${{ inputs.environment || 'staging' }}
+          SERVICE_NAME=${{ env.PROJECT_NAME }}-backend
+          
+          aws ecs update-service \
+            --cluster $CLUSTER_NAME \
+            --service $SERVICE_NAME \
+            --task-definition ${{ steps.update-task.outputs.new_task_def }} \
+            --force-new-deployment
+
+      - name: Wait for deployment
+        run: |
+          CLUSTER_NAME=${{ env.PROJECT_NAME }}-${{ inputs.environment || 'staging' }}
+          SERVICE_NAME=${{ env.PROJECT_NAME }}-backend
+          
+          aws ecs wait services-stable \
+            --cluster $CLUSTER_NAME \
+            --services $SERVICE_NAME
+
+  trigger-auth-deployment:
+    name: Trigger Auth Deployment
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    if: inputs.run_auth_workflows == true
+    
+    steps:
+      - name: Trigger auth deployment workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'auth-deployment.yml',
+              ref: 'main',
+              inputs: {
+                environment: '${{ inputs.environment || 'staging' }}',
+                run_migrations: true,
+                enforce_mfa: false,
+                revoke_legacy_sessions: false
+              }
+            })

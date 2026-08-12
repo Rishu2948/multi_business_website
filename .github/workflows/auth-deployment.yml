@@ -1,0 +1,308 @@
+name: Auth Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      run_migrations:
+        description: 'Run database migrations'
+        required: true
+        type: boolean
+        default: true
+      enforce_mfa:
+        description: 'Enable MFA enforcement'
+        required: true
+        type: boolean
+        default: false
+      revoke_legacy_sessions:
+        description: 'Revoke legacy sessions (cutover)'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: multi-business-bakery
+
+jobs:
+  deploy-auth-infrastructure:
+    name: Deploy Auth Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file deployment/cloudformation/auth-infrastructure.yaml \
+            --stack-name ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-auth-infrastructure \
+            --parameter-overrides \
+              Environment=${{ inputs.environment }} \
+              ProjectName=${{ env.PROJECT_NAME }} \
+              RedisEnabled=true \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset
+
+      - name: Get secrets ARNs
+        id: secrets
+        run: |
+          MFA_KEY_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-auth-infrastructure \
+            --query 'Stacks[0].Outputs[?OutputKey==`MFAEncryptionKeyArn`].OutputValue' \
+            --output text)
+          
+          JWT_SECRET_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-auth-infrastructure \
+            --query 'Stacks[0].Outputs[?OutputKey==`JWTSecretArn`].OutputValue' \
+            --output text)
+          
+          echo "mfa_key_arn=$MFA_KEY_ARN" >> $GITHUB_OUTPUT
+          echo "jwt_secret_arn=$JWT_SECRET_ARN" >> $GITHUB_OUTPUT
+
+      - name: Update environment variables in ECS
+        run: |
+          # Update ECS task definition with new secret ARNs
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-backend \
+            --query 'taskDefinition' \
+            --output json)
+          
+          # Add or update environment variables
+          TASK_DEF=$(echo $TASK_DEF | jq --arg mfa_arn "${{ steps.secrets.outputs.mfa_key_arn }}" \
+            --arg jwt_arn "${{ steps.secrets.outputs.jwt_secret_arn }}" \
+            '.containerDefinitions[0].secrets += [
+              {"name": "MFA_ENCRYPTION_KEY_ARN", "valueFrom": $mfa_arn},
+              {"name": "JWT_SECRET_ARN", "valueFrom": $jwt_arn}
+            ]')
+          
+          TASK_DEF=$(echo $TASK_DEF | jq --arg enforce_mfa "${{ inputs.enforce_mfa }}" \
+            '.containerDefinitions[0].environment += [
+              {"name": "MFA_ENFORCE_FOR_ADMINS", "value": $enforce_mfa}
+            ]')
+          
+          # Register new task definition
+          NEW_TASK_DEF=$(aws ecs register-task-definition \
+            --cli-input-json "$TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          
+          echo "new_task_def=$NEW_TASK_DEF" >> $GITHUB_OUTPUT
+
+  run-auth-migrations:
+    name: Run Auth Migrations
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: deploy-auth-infrastructure
+    if: inputs.run_migrations
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get MongoDB connection string
+        id: mongodb
+        run: |
+          # Get MongoDB connection string from Secrets Manager
+          MONGO_URL=$(aws secretsmanager get-secret-value \
+            --secret-id ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-mongodb \
+            --query 'SecretString' \
+            --output text | jq -r '.mongodb_url')
+          
+          DB_NAME=$(aws secretsmanager get-secret-value \
+            --secret-id ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-mongodb \
+            --query 'SecretString' \
+            --output text | jq -r '.db_name')
+          
+          echo "mongo_url=$MONGO_URL" >> $GITHUB_OUTPUT
+          echo "db_name=$DB_NAME" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Create MongoDB indexes for MFA
+        run: |
+          cd backend
+          python -c "
+          import asyncio
+          from motor.motor_asyncio import AsyncIOMotorClient
+          import os
+          
+          async def create_indexes():
+              client = AsyncIOMotorClient('${{ steps.mongodb.outputs.mongo_url }}')
+              db = client['${{ steps.mongodb.outputs.db_name }}']
+              
+              # Create MFA indexes
+              await db.mfa_pending_enrollments.create_index(
+                  [('user_id', 1), ('expires_at', 1)],
+                  expire_after_seconds=600
+              )
+              await db.mfa_pending_enrollments.create_index([('created_at', 1)])
+              await db.users.create_index([('mfa.enabled', 1)])
+              await db.users.create_index([('mfa.last_verified_at', 1)])
+              
+              print('MFA indexes created successfully')
+              client.close()
+          
+          asyncio.run(create_indexes())
+          "
+
+      - name: Generate MFA migration report
+        run: |
+          cd backend
+          export MONGO_URL="${{ steps.mongodb.outputs.mongo_url }}"
+          export DB_NAME="${{ steps.mongodb.outputs.db_name }}"
+          python3 scripts/mfa_migration.py --report
+
+      - name: Save migration report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfa-migration-report-${{ inputs.environment }}
+          path: backend/mfa-migration-report.txt
+
+  revoke-legacy-sessions:
+    name: Revoke Legacy Sessions
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: run-auth-migrations
+    if: inputs.revoke_legacy_sessions
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get MongoDB connection string
+        id: mongodb
+        run: |
+          MONGO_URL=$(aws secretsmanager get-secret-value \
+            --secret-id ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-mongodb \
+            --query 'SecretString' \
+            --output text | jq -r '.mongodb_url')
+          
+          DB_NAME=$(aws secretsmanager get-secret-value \
+            --secret-id ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-mongodb \
+            --query 'SecretString' \
+            --output text | jq -r '.db_name')
+          
+          echo "mongo_url=$MONGO_URL" >> $GITHUB_OUTPUT
+          echo "db_name=$DB_NAME" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Check legacy session statistics
+        run: |
+          cd backend
+          export MONGO_URL="${{ steps.mongodb.outputs.mongo_url }}"
+          export DB_NAME="${{ steps.mongodb.outputs.db_name }}"
+          python3 scripts/revoke_legacy_sessions.py --stats
+
+      - name: Revoke legacy sessions
+        run: |
+          cd backend
+          export MONGO_URL="${{ steps.mongodb.outputs.mongo_url }}"
+          export DB_NAME="${{ steps.mongodb.outputs.db_name }}"
+          python3 scripts/revoke_legacy_sessions.py --force
+
+      - name: Update AUTH_ACCEPT_LEGACY_SESSION parameter
+        run: |
+          aws ssm put-parameter \
+            --name /${{ env.PROJECT_NAME }}/${{ inputs.environment }}/auth/config \
+            --value '{"mfa_enforce_for_admins":"false","auth_accept_legacy_session":"false","auth_rate_limit_per_minute":"10","webhook_skip_verify":"false","max_sessions_per_user":"5","access_token_ttl_seconds":"900","refresh_token_ttl_seconds":"604800"}' \
+            --type String \
+            --overwrite
+
+  security-sweep:
+    name: Run Security Sweep
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    needs: run-auth-migrations
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get API endpoint
+        id: api
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.PROJECT_NAME }}-${{ inputs.environment }}-backend \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
+            --output text)
+          
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install requests
+
+      - name: Run security sweep
+        run: |
+          cd backend
+          python3 scripts/sweep_privileged_apis.py --url ${{ steps.api.outputs.api_url }}
+
+      - name: Create deployment summary
+        run: |
+          echo "## Auth Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **MFA Enforcement**: ${{ inputs.enforce_mfa }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Migrations Run**: ${{ inputs.run_migrations }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Legacy Sessions Revoked**: ${{ inputs.revoke_legacy_sessions }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security Sweep**: Passed" >> $GITHUB_STEP_SUMMARY

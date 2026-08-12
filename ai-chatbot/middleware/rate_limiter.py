@@ -28,7 +28,7 @@ from starlette.responses import JSONResponse
 # ---------------------------------------------------------------------------
 
 _WINDOW_SECONDS: float = 60.0
-_MAX_REQUESTS: int = 30
+_MAX_REQUESTS: int = 30  # Meets documented minimum of ≥30 req/60s/IP
 
 # ---------------------------------------------------------------------------
 # In-process state

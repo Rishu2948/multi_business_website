@@ -36,14 +36,46 @@ def publish_event(user_id: str, event_type: str, data: dict):
 
 
 async def _get_user_from_request(request: Request):
-    token = request.query_params.get("token") or request.cookies.get("session_token") or request.headers.get("authorization", "").replace("Bearer ", "")
+    """Get user from request using Auth_Module (cookie or Authorization header only)."""
+    from backend.auth.dependencies import extract_token
+    from backend.auth.tokens import TokenManager
+    from backend.auth.sessions import update_last_seen
+    
+    # Only accept cookie or Authorization header (no query param for security)
+    token = request.cookies.get("refresh_token") or request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+    
     if not token:
         return None
-    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-    if not session:
-        return None
-    user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
-    return user
+    
+    # Try as JWT access token first
+    try:
+        token_manager = TokenManager(db)
+        payload = token_manager.verify_access_token(token)
+        
+        # Load user from DB for authorization
+        user = await db.users.find_one(
+            {"user_id": payload["sub"]},
+            {"_id": 0}
+        )
+        
+        if not user:
+            return None
+        
+        # Update last seen
+        await update_last_seen(db, payload["sid"])
+        
+        return user
+    
+    except Exception:
+        # If JWT fails, try legacy session if enabled
+        from backend.auth.tokens import validate_legacy_session
+        user = await validate_legacy_session(db, token)
+        
+        return user
 
 
 @router.get("/events")

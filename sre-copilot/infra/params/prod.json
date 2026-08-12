@@ -14,5 +14,9 @@
   {
     "ParameterKey": "KnowledgeBaseIdOverride",
     "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AllowedCidrIps",
+    "ParameterValue": "REPLACE_WITH_YOUR_OFFICE_CIDR/32"
   }
 ]

@@ -110,9 +110,10 @@ deploy_stack "sre-lambda-tools"  "infra/04-lambda-tools.yaml"
 deploy_stack "sre-lambda-chat"   "infra/05-lambda-chat.yaml"
 deploy_stack "sre-bedrock-kb"    "infra/06-bedrock-kb.yaml"
 deploy_stack "sre-bedrock-agent" "infra/07-bedrock-agent.yaml"
+deploy_stack "sre-cloudfront"    "infra/08-cloudfront.yaml"
 
 echo ""
-echo ">>> All 7 stacks deployed successfully."
+echo ">>> All 8 stacks deployed successfully."
 
 # ---------------------------------------------------------------------------
 # Step 2 — Retrieve stack outputs needed for post-deploy steps
@@ -122,21 +123,23 @@ echo ">>> PHASE 2: Retrieving stack outputs"
 
 KB_BUCKET="$(get_stack_output sre-s3-buckets KnowledgeBaseBucketName)"
 UI_BUCKET="$(get_stack_output sre-s3-buckets UiBucketName)"
-UI_URL="$(get_stack_output sre-s3-buckets UiBucketWebsiteUrl)"
 KB_ID="$(get_stack_output sre-bedrock-kb KnowledgeBaseId)"
 DS_ID="$(get_stack_output sre-bedrock-kb DataSourceId)"
 AGENT_ID="$(get_stack_output sre-bedrock-agent AgentId)"
 AGENT_ALIAS_ID="$(get_stack_output sre-bedrock-agent AgentAliasId)"
 CHAT_API_URL="$(get_stack_output sre-lambda-chat ChatApiUrl)"
+CF_DISTRIBUTION_ID="$(get_stack_output sre-cloudfront CloudFrontDistributionId)"
+UI_URL="$(get_stack_output sre-cloudfront CloudFrontUrl)"
 
-echo "  KB_BUCKET     : ${KB_BUCKET}"
-echo "  UI_BUCKET     : ${UI_BUCKET}"
-echo "  KB_ID         : ${KB_ID}"
-echo "  DS_ID         : ${DS_ID}"
-echo "  AGENT_ID      : ${AGENT_ID}"
-echo "  AGENT_ALIAS_ID: ${AGENT_ALIAS_ID}"
-echo "  CHAT_API_URL  : ${CHAT_API_URL}"
-echo "  UI_URL        : ${UI_URL}"
+echo "  KB_BUCKET        : ${KB_BUCKET}"
+echo "  UI_BUCKET        : ${UI_BUCKET}"
+echo "  KB_ID            : ${KB_ID}"
+echo "  DS_ID            : ${DS_ID}"
+echo "  AGENT_ID         : ${AGENT_ID}"
+echo "  AGENT_ALIAS_ID   : ${AGENT_ALIAS_ID}"
+echo "  CHAT_API_URL     : ${CHAT_API_URL}"
+echo "  CF_DISTRIBUTION  : ${CF_DISTRIBUTION_ID}"
+echo "  UI_URL           : ${UI_URL}"
 
 # ---------------------------------------------------------------------------
 # Step 3 — Upload runbooks to S3
@@ -178,8 +181,18 @@ aws s3 sync dist/ "s3://${UI_BUCKET}/" \
     --delete \
     --region "${REGION}"
 
+# Invalidate CloudFront cache so SREs get the new build immediately.
+# Without this, CloudFront serves stale JS/CSS for up to 24 hours (default TTL).
+echo "  Invalidating CloudFront cache (distribution: ${CF_DISTRIBUTION_ID}) …"
+INVALIDATION_ID=$(aws cloudfront create-invalidation \
+    --distribution-id "${CF_DISTRIBUTION_ID}" \
+    --paths "/*" \
+    --query "Invalidation.Id" \
+    --output text)
+echo "  Invalidation created: ${INVALIDATION_ID} (takes ~30–60s to propagate)"
+
 cd "${SCRIPT_DIR}"
-echo "  UI deployed to s3://${UI_BUCKET}/"
+echo "  UI deployed and cache invalidated."
 
 # ---------------------------------------------------------------------------
 # Post-deploy checklist
@@ -206,8 +219,12 @@ echo "       AGENT_ALIAS_ID=${AGENT_ALIAS_ID} \\"
 echo "       AWS_REGION=${REGION} \\"
 echo "       python scripts/test_agent.py"
 echo ""
-echo "  4. Open the Chat UI in your browser:"
-echo "       http://${UI_URL}"
+echo "  4. Open the Chat UI in your browser (HTTPS, IP-restricted):"
+echo "       ${UI_URL}"
+echo ""
+echo "     If you see a 403, your IP is not in AllowedCidrIps."
+echo "     Update it in infra/params/${ENV}.json and re-run deploy.sh."
+echo "     Find your current IP: curl -s https://checkip.amazonaws.com"
 echo ""
 echo "  5. CloudFormation stack outputs for reference:"
 echo "       AGENT_ID      : ${AGENT_ID}"

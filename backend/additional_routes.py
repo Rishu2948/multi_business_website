@@ -20,14 +20,58 @@ def set_db(database):
 
 from ecommerce_models import ReviewCreate, SubscriptionCreate
 
-async def get_optional_user(request: Request):
-    """Get user if authenticated"""
+# Import Auth_Module
+from backend.auth.dependencies import get_current_user, get_optional_user
+from backend.auth.rbac import check_business_access
+
+# Override get_current_user to use local db
+async def get_current_user_with_db(request: Request):
+    """Get current user using local db instance"""
+    from backend.auth.dependencies import extract_token
+    from backend.auth.tokens import TokenManager
+    from backend.auth.sessions import update_last_seen
+    
+    token = await extract_token(request)
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Try as JWT access token first
     try:
-        session_token = request.cookies.get("session_token") or request.headers.get("authorization", "").replace("Bearer ", "")
-        if not session_token:
-            return None
+        token_manager = TokenManager(db)
+        payload = token_manager.verify_access_token(token)
         
-        session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+        # Load user from DB for authorization
+        user = await db.users.find_one(
+            {"user_id": payload["sub"]},
+            {"_id": 0}
+        )
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        # Update last seen
+        await update_last_seen(db, payload["sid"])
+        
+        return user
+    
+    except HTTPException:
+        # If JWT fails, try legacy session if enabled
+        from backend.auth.tokens import validate_legacy_session
+        user = await validate_legacy_session(db, token)
+        
+        if user:
+            return user
+        
+        raise HTTPException(status_code=401, detail="Invalid or expired credentials")
+
+# Override get_optional_user to use local db
+async def get_optional_user_with_db(request: Request):
+    """Get user if authenticated, None otherwise"""
+    try:
+        return await get_current_user_with_db(request)
+    except HTTPException:
+        return None
         if not session:
             return None
         
@@ -40,7 +84,7 @@ async def get_optional_user(request: Request):
 @reviews_router.post("/create")
 async def create_review(review: ReviewCreate, request: Request):
     """Create product review"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
@@ -112,7 +156,7 @@ async def get_product_reviews(product_id: str):
 @loyalty_router.get("/points")
 async def get_loyalty_points(request: Request):
     """Get user's loyalty points"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
@@ -149,7 +193,7 @@ async def get_loyalty_points(request: Request):
 @loyalty_router.get("/transactions")
 async def get_points_transactions(request: Request):
     """Get user's points transaction history"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
@@ -164,7 +208,7 @@ async def get_points_transactions(request: Request):
 @subscriptions_router.post("/create")
 async def create_subscription(subscription: SubscriptionCreate, request: Request):
     """Create product subscription"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
@@ -192,7 +236,7 @@ async def create_subscription(subscription: SubscriptionCreate, request: Request
 @subscriptions_router.get("/my-subscriptions")
 async def get_my_subscriptions(request: Request):
     """Get user's subscriptions"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
@@ -206,7 +250,7 @@ async def get_my_subscriptions(request: Request):
 @subscriptions_router.put("/{subscription_id}/pause")
 async def pause_subscription(subscription_id: str, request: Request):
     """Pause subscription"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
@@ -227,7 +271,7 @@ async def pause_subscription(subscription_id: str, request: Request):
 @subscriptions_router.put("/{subscription_id}/resume")
 async def resume_subscription(subscription_id: str, request: Request):
     """Resume subscription"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
@@ -241,7 +285,7 @@ async def resume_subscription(subscription_id: str, request: Request):
 @subscriptions_router.delete("/{subscription_id}")
 async def cancel_subscription(subscription_id: str, request: Request):
     """Cancel subscription"""
-    user = await get_optional_user(request)
+    user = await get_optional_user_with_db(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     

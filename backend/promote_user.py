@@ -52,6 +52,11 @@ async def promote(email: str, role: str, business_id: str = None):
         print(f"  ✅ {email} promoted to {role}")
         if business_id:
             print(f"     Business access granted: {business_id}")
+        
+        # Revoke all sessions for security
+        from backend.auth.sessions import revoke_all_sessions
+        revoked_count = await revoke_all_sessions(db, user["user_id"])
+        print(f"  🔒 Revoked {revoked_count} active sessions for security")
     else:
         print(f"  ℹ️  No changes made (user may already have this role)")
 

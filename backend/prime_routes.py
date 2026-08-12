@@ -514,18 +514,38 @@ async def verify_payment(request: Request):
 
 @router.post("/webhooks/razorpay")
 async def razorpay_webhook(request: Request):
-    """Handle Razorpay payment webhooks."""
+    """Handle Razorpay payment webhooks with signature verification."""
+    from backend.auth.webhooks import verify_razorpay_webhook_request, WebhookVerifier
+    from backend.auth.audit import write_audit_event, AuditEventType
+    
     # Get webhook signature for verification
     signature = request.headers.get("x-razorpay-signature")
     
-    # Get webhook body
-    body = await request.body()
+    if not signature:
+        logger.error("Missing Razorpay signature header")
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.WEBHOOK_VERIFICATION_FAILED,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "missing_signature"},
+            success=False
+        )
+        raise HTTPException(status_code=403, detail="Missing signature header")
     
-    # Verify signature (if Razorpay is configured)
-    if razorpay_client.is_configured():
-        # TODO: Implement proper signature verification
-        # For now, we'll skip verification in development
-        pass
+    # Verify signature using Auth_Module
+    verifier = WebhookVerifier()
+    try:
+        body = await verify_razorpay_webhook_request(request, verifier)
+    except HTTPException as e:
+        logger.error(f"Webhook signature verification failed: {e.detail}")
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.WEBHOOK_VERIFICATION_FAILED,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "invalid_signature"},
+            success=False
+        )
+        raise
     
     # Parse webhook data
     import json
@@ -533,23 +553,54 @@ async def razorpay_webhook(request: Request):
         webhook_data = json.loads(body)
     except json.JSONDecodeError:
         logger.error("Invalid webhook JSON")
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.WEBHOOK_VERIFICATION_FAILED,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "invalid_json"},
+            success=False
+        )
         raise HTTPException(status_code=400, detail="Invalid webhook data")
     
     # Handle webhook event
     result = await handle_razorpay_webhook(db, webhook_data, signature)
     
     if result.get("success"):
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.WEBHOOK_PROCESSED,
+            ip_address=request.client.host if request.client else None,
+            details={"event_type": webhook_data.get("event")},
+            success=True
+        )
         return {"status": "success", "message": result.get("message")}
     else:
         logger.error(f"Webhook processing failed: {result.get('error')}")
+        await write_audit_event(
+            db,
+            event_type=AuditEventType.WEBHOOK_VERIFICATION_FAILED,
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "processing_failed", "error": result.get("error")},
+            success=False
+        )
         # Still return 200 to acknowledge receipt, but log error
         return {"status": "error", "error": result.get("error")}
 
 
 @router.post("/webhooks/stripe")
 async def stripe_webhook(request: Request):
-    """Handle Stripe payment webhooks."""
-    # TODO: Implement signature validation and event processing
-    # For MVP, return 200 to acknowledge receipt
-    logger.info("Stripe webhook received (MVP placeholder)")
-    return {"status": "received"}
+    """Handle Stripe payment webhooks (not currently implemented)."""
+    from backend.auth.webhooks import verify_stripe_webhook_request, WebhookVerifier
+    from backend.auth.audit import write_audit_event, AuditEventType
+    
+    # Stripe webhooks are not currently implemented
+    # Reject with proper error
+    logger.warning("Stripe webhook received but not implemented")
+    await write_audit_event(
+        db,
+        event_type=AuditEventType.WEBHOOK_VERIFICATION_FAILED,
+        ip_address=request.client.host if request.client else None,
+        details={"reason": "stripe_not_implemented"},
+        success=False
+    )
+    raise HTTPException(status_code=501, detail="Stripe webhooks not implemented")
