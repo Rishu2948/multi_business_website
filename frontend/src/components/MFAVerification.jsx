@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import apiClient from '../../utils/api';
+import apiClient from '../utils/api';
 import { toast } from 'sonner';
 
 const MFAVerification = ({ onVerificationComplete, user_id, trust_device: initialTrustDevice = false }) => {

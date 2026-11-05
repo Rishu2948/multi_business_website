@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import apiClient from '../../utils/api';
+import apiClient from '../utils/api';
 import { toast } from 'sonner';
 
 const MFAEnrollment = ({ onEnrollmentComplete }) => {
