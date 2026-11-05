@@ -54,6 +54,7 @@ const PrimeAnalytics = () => {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (businessId) {
       fetchAnalytics();

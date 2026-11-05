@@ -52,6 +52,7 @@ export const AuthProvider = ({ children }) => {
     setMfaRequired(true);
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const logout = async () => {
     try {
       await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });

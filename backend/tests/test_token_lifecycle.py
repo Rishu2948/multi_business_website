@@ -234,7 +234,7 @@ class TestConcurrentSessionLimit:
         mock_db.user_sessions.count_documents = AsyncMock(return_value=5)
         mock_db.user_sessions.find = MagicMock()
         mock_db.user_sessions.find.return_value.sort.return_value.to_list = AsyncMock(
-            return_value [{"session_id": f"sess_{i}"} for i in range(5)]
+            return_value=[{"session_id": f"sess_{i}"} for i in range(5)]
         )
         mock_db.user_sessions.delete_one = AsyncMock()
         mock_db.user_sessions.insert_one = AsyncMock()
